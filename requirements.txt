@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+fastmcp
+anthropic
+openai
+google-generativeai
+langchain
+langchain-openai
+sentence-transformers
+faiss-cpu
+requests
