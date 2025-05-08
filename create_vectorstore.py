@@ -28,6 +28,7 @@ from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # Load the document and create a vector store
 loader = TextLoader("panda_documentation.txt")
@@ -37,7 +38,14 @@ docs = loader.load()
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 chunks = splitter.split_documents(docs)
 
+# Use either OpenAI or HuggingFace embeddings
+if False:
+    # OpenAI embeddings
+    embeddings = OpenAIEmbeddings()
+else:
+    model_name = "all-MiniLM-L6-v2"  # Efficient, recommended model
+    embeddings = HuggingFaceEmbeddings(model_name=model_name)
+
 # Create the vector store
-embeddings = OpenAIEmbeddings()
 vectorstore = FAISS.from_documents(chunks, embeddings)
 vectorstore.save_local("vectorstore")
