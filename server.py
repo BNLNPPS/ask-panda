@@ -57,7 +57,7 @@ vectorstore = FAISS.load_local(
 
 class PandaMCP(FastMCP):
     def rag_query(self, question: str, model: str) -> str:
-        docs = vectorstore.similarity_search(question, k=3)
+        docs = vectorstore.similarity_search(question, k=5)
         context = "\n\n".join(doc.page_content for doc in docs)
         prompt = f"Answer based on the following context:\n{context}\n\nQuestion: {question}"
 
