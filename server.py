@@ -56,7 +56,18 @@ vectorstore = FAISS.load_local(
 )
 
 class PandaMCP(FastMCP):
+    """PandaMCP class for handling RAG queries."""
     def rag_query(self, question: str, model: str) -> str:
+        """
+        Perform a similarity search on the vector store and retrieve relevant documents.
+
+        Args:
+            question (str): The input question to query the vector store.
+            model (str): The model to use for generating the answer.
+
+        Returns:
+            str: The retrieved documents as a concatenated string.
+        """
         docs = vectorstore.similarity_search(question, k=5)
         context = "\n\n".join(doc.page_content for doc in docs)
         prompt = f"Answer based on the following context:\n{context}\n\nQuestion: {question}"
@@ -91,17 +102,34 @@ class PandaMCP(FastMCP):
 
         raise ValueError(f"Unsupported model '{model}'.")
 
+# Initialize the PandaMCP instance
 mcp = PandaMCP("panda")
 
 class QuestionRequest(BaseModel):
+    """Pydantic model for the request body of the /rag_ask endpoint."""
     question: str
     model: str
 
 @app.post("/rag_ask")
-async def rag_ask(request: QuestionRequest):
+async def rag_ask(request: QuestionRequest) -> dict:
+    """
+    Handle a POST request to the /rag_ask endpoint.
+
+    This endpoint receives a question and a model name, processes the query
+    using the RAG (Retrieval-Augmented Generation) system, and returns the
+    generated answer.
+
+    Args:
+        request (QuestionRequest): A Pydantic model containing the question
+            and the model name.
+
+    Returns:
+        dict: A dictionary containing the generated answer.
+    """
     response = mcp.rag_query(request.question, request.model)
     return {"answer": response}
 
 if __name__ == "__main__":
+    # Run the FastAPI server
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
