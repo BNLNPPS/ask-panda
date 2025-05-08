@@ -25,7 +25,11 @@ export LLAMA_API_URL='http://localhost:11434/api/generate'  # For Ollama Llama3 
 ```
 
 # Usage
-1. Run the Server:
+0. Create the vector store for the static conversation:
+```
+python create_vector_store.py
+```
+1. Start the Server:
 ```
 uvicorn server:app --reload
 ```
