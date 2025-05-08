@@ -30,6 +30,7 @@ import google.generativeai as genai
 import requests
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 
 app = FastAPI()
 
@@ -42,9 +43,17 @@ LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://localhost:11434/api/generate"
 openai.api_key = OPENAI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Load vector store once at startup
-embeddings = OpenAIEmbeddings()
-vectorstore = FAISS.load_local("vectorstore", embeddings)
+# Load vector store once at startup (same model used during vectorstore creation)
+if False:
+    embeddings = OpenAIEmbeddings()
+else:
+    model_name = "all-MiniLM-L6-v2"
+    embeddings = HuggingFaceEmbeddings(model_name=model_name)
+vectorstore = FAISS.load_local(
+    "vectorstore",
+    embeddings,
+    allow_dangerous_deserialization=True  # Safe if it's your own data
+)
 
 class PandaMCP(FastMCP):
     def rag_query(self, question: str, model: str) -> str:

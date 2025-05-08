@@ -6,6 +6,7 @@ openai
 google-generativeai
 langchain
 langchain-openai
+langchain-huggingface
 sentence-transformers
 faiss-cpu
 requests
