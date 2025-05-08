@@ -35,7 +35,7 @@ loader = TextLoader("panda_documentation.txt")
 docs = loader.load()
 
 # Split the document into chunks
-splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
 chunks = splitter.split_documents(docs)
 
 # Use either OpenAI or HuggingFace embeddings
