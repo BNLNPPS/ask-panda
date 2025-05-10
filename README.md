@@ -41,6 +41,13 @@ python agent.py "What is the purpose of the PanDA server?" llama
 python agent.py "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined)
 python agent.py "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
 ```
+3. Run the Error Analysis Agent with a custom model:
+```
+python error_analysis_agent.py <PanDA ID: int> gemini
+```
+Note: The error analysis agent will use the provided PanDA ID to fetch the pilotlog.txt for
+the given PanDA job. It will then use the provided model to analyze the reason for the error. Use an existing PanDA ID for a failed job.
+IN DEVELOPMENT: The error analysis agent is not yet fully functional. It will return a list of the error codes, but it will not be able to provide the full context of each error code. This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
 
 **Note**: Due to the limited context window of the models, the agent will 
 not be able to answer all of the questions. The last example can be used as a benchmark test.
