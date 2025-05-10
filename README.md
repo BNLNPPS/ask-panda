@@ -38,8 +38,8 @@ uvicorn server:app --reload
 python agent.py "What is PanDA?" openai
 python agent.py "How does the PanDA pilot work?" anthropic
 python agent.py "What is the purpose of the PanDA server?" llama
-python agent.py "What is the PanDA WMS?" gemini
-python agent.py "Please list all of the PanDA pilot error codes" gemini
+python agent.py "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined)
+python agent.py "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
 ```
 
 **Note**: Due to the limited context window of the models, the agent will 
