@@ -120,7 +120,7 @@ def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
     if not job_data:
         print(f"Error: Failed to read the JSON data from {json_file_name}.")
         return None
-    if not job_data['files'][0]['status'] == 'failed':
+    if not job_data['job']['jobstatus'] == 'failed':
         print(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
         return None
     print(f"Confirmed that job {pandaid} is in a failed state.")
