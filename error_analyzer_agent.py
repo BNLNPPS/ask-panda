@@ -96,9 +96,9 @@ def read_json_file(file_path: str) -> dict or None:
     return data
 
 
-def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
+def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or None]:
     """
-    Fetches all files from PanDA for a given job ID.
+    Fetches all files and metadata from PanDA for a given job ID.
 
     Args:
         pandaid (int): The panda job ID.
@@ -106,12 +106,14 @@ def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
 
     Returns:
         File dictionary (dict): A dictionary containing the file names and their corresponding paths.
+        Metadata dictionary (dict): A dictionary containing the relevant metadata for the job.
     """
+    _metadata_dictionary = {}
     _file_dictionary = {}
     json_file_name = fetch_data(pandaid, jsondata=True)
     if not json_file_name:
         print(f"Error: Failed to fetch the JSON data for PandaID {args.pandaid}.")
-        return None
+        return None, None
     print(f"Downloaded JSON file: {json_file_name}")
     _file_dictionary["json"] = json_file_name
 
@@ -119,18 +121,24 @@ def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
     job_data = read_json_file(json_file_name)
     if not job_data:
         print(f"Error: Failed to read the JSON data from {json_file_name}.")
-        return None
+        return None, None
     if not job_data['job']['jobstatus'] == 'failed':
         print(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
-        return None
+        return None, None
     print(f"Confirmed that job {pandaid} is in a failed state.")
+
+    # Extract relevant metadata from the JSON data
+    _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
+    _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
+    _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
+    _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
 
     # Proceed to download the log files
     for log_file in log_files:
         log_file_name = fetch_data(pandaid, filename=log_file)
         if not log_file_name:
             print(f"Error: Failed to fetch the log file {log_file}.")
-            return None
+            return None, None
 
         # Keep track of the file names
         _file_dictionary[log_file] = log_file_name
@@ -139,7 +147,7 @@ def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
         # For example, you can print it or analyze it further
         print(f"Downloaded file: {log_file}, stored as {log_file_name}")
 
-    return _file_dictionary
+    return _file_dictionary, _metadata_dictionary
 
 
 def main():
@@ -167,7 +175,7 @@ def main():
     log_files = args.log_files.split(',')
 
     # Fetch the files from PanDA
-    file_dictionary = fetch_all_files(args.pandaid, log_files)
+    file_dictionary, metadata_dictionary = fetch_all_data(args.pandaid, log_files)
     if not file_dictionary:
         print(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
         sys.exit(1)
