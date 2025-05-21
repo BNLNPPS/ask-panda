@@ -64,9 +64,12 @@ python agent.py "Please list all of the PanDA pilot error codes" gemini  (demons
 ```
 
 # Error Analysis Agent
-1. Run the Error Analysis Agent with a custom model:
+
+1. Start the Server as described above.
+
+2. Run the Error Analysis Agent with a custom model:
 ```
-python error_analysis_agent.py <PanDA ID: int> gemini
+python error_analyzer_agent.py [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL
 ```
 **Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
 the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
