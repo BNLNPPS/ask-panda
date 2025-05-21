@@ -112,7 +112,7 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
     _file_dictionary = {}
     json_file_name = fetch_data(pandaid, jsondata=True)
     if not json_file_name:
-        print(f"Error: Failed to fetch the JSON data for PandaID {args.pandaid}.")
+        print(f"Error: Failed to fetch the JSON data for PandaID {pandaid}.")
         return None, None
     print(f"Downloaded JSON file: {json_file_name}")
     _file_dictionary["json"] = json_file_name
@@ -127,11 +127,29 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
         return None, None
     print(f"Confirmed that job {pandaid} is in a failed state.")
 
+    # Fetch pilot error descriptions
+    pilot_error_descriptions = read_json_file("pilot_error_codes_and_descriptions.json")
+    if not pilot_error_descriptions:
+        print(f"Error: Failed to read the pilot error descriptions.")
+        return None, None
+
+    # Fetch transform error descriptions
+    transform_error_descriptions = read_json_file("trf_error_codes_and_descriptions.json")
+    if not transform_error_descriptions:
+        print(f"Error: Failed to read the transform error descriptions.")
+        return None, None
+
     # Extract relevant metadata from the JSON data
-    _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
-    _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
-    _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
-    _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
+    try:
+        _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
+        _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
+        _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
+        _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
+        _metadata_dictionary["piloterrordescription"] = pilot_error_descriptions.get(str(_metadata_dictionary.get("piloterrorcode")))
+        _metadata_dictionary["trferrordescription"] = transform_error_descriptions.get(str(_metadata_dictionary.get("exeerrorcode")))
+    except KeyError as e:
+        print(f"Error: Missing key in JSON data: {e}")
+        return None, None
 
     # Proceed to download the log files
     for log_file in log_files:
@@ -179,7 +197,7 @@ def main():
     if not file_dictionary:
         print(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
         sys.exit(1)
-
+    print(metadata_dictionary)
     # Extract the relevant parts for error analysis
 
     #answer = ask(question, model)
