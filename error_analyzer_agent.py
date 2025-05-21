@@ -20,12 +20,13 @@
 
 """This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
+import argparse
 import re
 import requests
 import sys
 from fastmcp import FastMCP
 
-from https import download_file
+from https import download_log_file
 
 mcp = FastMCP("panda")
 
@@ -58,10 +59,10 @@ def fetch_file(panda_id: int, filename: str) -> str or None:
         filename (str): The name of the file to fetch.
 
     Returns:
-        str or None: The desired file.
+        str or None: The name of the downloaded file.
     """
     url = f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
-    response = download_file(url) #  post(url)
+    response = download_log_file(url) #  post(url)
     if response and isinstance(response, str):
         return response
     if response:
@@ -82,20 +83,30 @@ def main():
     Raises:
         SystemExit: If the number of arguments is not equal to 3.
     """
-    if len(sys.argv) != 3:
-        print("Usage: python agent.py \"<PanDA ID>\" <model>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Process some arguments.")
 
-    panda_id, model = sys.argv[1], sys.argv[2]
-    if not panda_id.isdigit():
-        print("Error: The first argument must be a valid PanDA ID (integer).")
-        sys.exit(1)
+    parser.add_argument('--log-files', type=str, required=True,
+                        help='Comma-separated list of log files')
+    parser.add_argument('--pandaid', type=int, required=True,
+                        help='PandaID (integer)')
+    parser.add_argument('--model', type=str, required=True,
+                        help='Model to use (e.g., openai, anthropic, etc.)')
 
-    # Fetch the log file from PanDA
-    log_file = fetch_file(int(panda_id), "pilotlog.txt")
-    if not log_file or log_file == "Failed to retrieve file":
-        print("Error: Failed to fetch the log file.")
-        sys.exit(1)
+    args = parser.parse_args()
+
+    # Split the log files into a list
+    log_files = args.log_files.split(',')
+
+    # Fetch the log files from PanDA
+    for log_file in log_files:
+        log_file_name = fetch_file(args.pandaid, log_file)
+        if not log_file_name:
+            print(f"Error: Failed to fetch the log file {log_file}.")
+            sys.exit(1)
+
+        # Process the log file content as needed
+        # For example, you can print it or analyze it further
+        print(f"Downloaded file: {log_file}")
 
     # Extract the relevant parts for error analysis
 

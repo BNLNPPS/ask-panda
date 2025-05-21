@@ -31,15 +31,16 @@
 import json
 import os
 import platform
+import requests
 import shlex
 import ssl
 import sys
+import tempfile
 import urllib.request
 import urllib.error
 import urllib.parse
 from urllib.parse import parse_qs
 from typing import IO
-
 
 def open_file(filename: str, mode: str) -> IO:
     """
@@ -273,6 +274,28 @@ def hide_token(headers: dict) -> dict:
         headers['Authorization'] = 'Bearer ********'
 
     return headers
+
+
+def download_log_file(url: str) -> str or None:
+    """
+    Download a log file from the given URL and save it to a temporary file.
+
+    Args:
+        url (str): The URL of the log file to download.
+
+    Returns:
+        file name (str or None): The filename of the downloaded file, or None in case of failure.
+    """
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp_file:
+        for chunk in response.iter_content(chunk_size=8192):
+            tmp_file.write(chunk)
+
+        return tmp_file.name  # Return the file path
+
+    return None
 
 
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
