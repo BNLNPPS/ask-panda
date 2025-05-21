@@ -21,12 +21,13 @@
 """This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
+import json
 import re
 import requests
 import sys
 from fastmcp import FastMCP
 
-from https import download_log_file
+from https import download_data
 
 mcp = FastMCP("panda")
 
@@ -50,20 +51,25 @@ def ask(question: str, model: str) -> str:
     return f"Error: {response.text}"
 
 
-def fetch_file(panda_id: int, filename: str) -> str or None:
+def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> str or None:
     """
     Fetches a given file from PanDA.
 
     Args:
         panda_id (int): The job or task ID.
         filename (str): The name of the file to fetch.
+        jsondata (bool): If True, return a JSON string for the job.
 
     Returns:
         str or None: The name of the downloaded file.
     """
-    url = f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+    if jsondata:
+        url = f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
+    else:
+        url = f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
     print(f"Will download file from: {url}")
-    response = download_log_file(url) #  post(url)
+
+    response = download_data(url) #  post(url)
     if response and isinstance(response, str):
         return response
     if response:
@@ -72,6 +78,22 @@ def fetch_file(panda_id: int, filename: str) -> str or None:
         return response
     else:
         return None
+
+
+def read_json_file(file_path: str) -> dict or None:
+    """
+    Reads a JSON file and returns its contents as a dictionary.
+
+    Args:
+        file_path (str): The path to the JSON file.
+
+    Returns:
+        dict or None: The contents of the JSON file as a dictionary, or None if the file cannot be read.
+    """
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    return data
 
 
 def main():
@@ -84,6 +106,7 @@ def main():
     Raises:
         SystemExit: If the number of arguments is not equal to 3.
     """
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
     parser.add_argument('--log-files', type=str, required=True,
@@ -92,22 +115,39 @@ def main():
                         help='PandaID (integer)')
     parser.add_argument('--model', type=str, required=True,
                         help='Model to use (e.g., openai, anthropic, etc.)')
-
     args = parser.parse_args()
 
     # Split the log files into a list
     log_files = args.log_files.split(',')
 
-    # Fetch the log files from PanDA
-    log_file_dictionary = {}
+    # Fetch the files from PanDA
+    file_dictionary = {}
+    json_file_name = fetch_data(args.pandaid, jsondata=True)
+    if not json_file_name:
+        print(f"Error: Failed to fetch the JSON data for PandaID {args.pandaid}.")
+        sys.exit(1)
+    print(f"Downloaded JSON file: {json_file_name}")
+    file_dictionary["json"] = json_file_name
+
+    # Verify that the current job is actually a failed job (otherwise, we don't want to download the log files)
+    job_data = read_json_file(json_file_name)
+    if not job_data:
+        print(f"Error: Failed to read the JSON data from {json_file_name}.")
+        sys.exit(1)
+    if not job_data['files'][0]['status'] == 'failed':
+        print(f"Error: The job with PandaID {args.pandaid} is not in a failed state - nothing to explain.")
+        sys.exit(1)
+    print(f"Confirmed that job {args.pandaid} is in a failed state.")
+
+    # Proceed to download the log files
     for log_file in log_files:
-        log_file_name = fetch_file(args.pandaid, log_file)
+        log_file_name = fetch_data(args.pandaid, filename=log_file)
         if not log_file_name:
             print(f"Error: Failed to fetch the log file {log_file}.")
             sys.exit(1)
 
         # Keep track of the file names
-        log_file_dictionary[log_file] = log_file_name
+        file_dictionary[log_file] = log_file_name
 
         # Process the log file content as needed
         # For example, you can print it or analyze it further

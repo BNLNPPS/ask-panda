@@ -276,9 +276,9 @@ def hide_token(headers: dict) -> dict:
     return headers
 
 
-def download_log_file(url: str) -> str or None:
+def download_data(url: str) -> str or None:
     """
-    Download a log file from the given URL and save it to a temporary file.
+    Download a log file or JSON from the given URL and save it to a temporary file.
 
     Args:
         url (str): The URL of the log file to download.
