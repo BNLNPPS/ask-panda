@@ -62,6 +62,7 @@ def fetch_file(panda_id: int, filename: str) -> str or None:
         str or None: The name of the downloaded file.
     """
     url = f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+    print(f"Will download file from: {url}")
     response = download_log_file(url) #  post(url)
     if response and isinstance(response, str):
         return response
@@ -106,7 +107,7 @@ def main():
 
         # Process the log file content as needed
         # For example, you can print it or analyze it further
-        print(f"Downloaded file: {log_file}")
+        print(f"Downloaded file: {log_file}, stored as {log_file_name}")
 
     # Extract the relevant parts for error analysis
 
