@@ -96,6 +96,52 @@ def read_json_file(file_path: str) -> dict or None:
     return data
 
 
+def fetch_all_files(pandaid: int, log_files: list) -> dict or None:
+    """
+    Fetches all files from PanDA for a given job ID.
+
+    Args:
+        pandaid (int): The panda job ID.
+        log_files (list): A list of log files to fetch.
+
+    Returns:
+        File dictionary (dict): A dictionary containing the file names and their corresponding paths.
+    """
+    _file_dictionary = {}
+    json_file_name = fetch_data(pandaid, jsondata=True)
+    if not json_file_name:
+        print(f"Error: Failed to fetch the JSON data for PandaID {args.pandaid}.")
+        return None
+    print(f"Downloaded JSON file: {json_file_name}")
+    _file_dictionary["json"] = json_file_name
+
+    # Verify that the current job is actually a failed job (otherwise, we don't want to download the log files)
+    job_data = read_json_file(json_file_name)
+    if not job_data:
+        print(f"Error: Failed to read the JSON data from {json_file_name}.")
+        return None
+    if not job_data['files'][0]['status'] == 'failed':
+        print(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
+        return None
+    print(f"Confirmed that job {pandaid} is in a failed state.")
+
+    # Proceed to download the log files
+    for log_file in log_files:
+        log_file_name = fetch_data(pandaid, filename=log_file)
+        if not log_file_name:
+            print(f"Error: Failed to fetch the log file {log_file}.")
+            return None
+
+        # Keep track of the file names
+        _file_dictionary[log_file] = log_file_name
+
+        # Process the log file content as needed
+        # For example, you can print it or analyze it further
+        print(f"Downloaded file: {log_file}, stored as {log_file_name}")
+
+    return _file_dictionary
+
+
 def main():
     """
     Check if the correct number of command-line arguments is provided.
@@ -121,37 +167,10 @@ def main():
     log_files = args.log_files.split(',')
 
     # Fetch the files from PanDA
-    file_dictionary = {}
-    json_file_name = fetch_data(args.pandaid, jsondata=True)
-    if not json_file_name:
-        print(f"Error: Failed to fetch the JSON data for PandaID {args.pandaid}.")
+    file_dictionary = fetch_all_files(args.pandaid, log_files)
+    if not file_dictionary:
+        print(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
         sys.exit(1)
-    print(f"Downloaded JSON file: {json_file_name}")
-    file_dictionary["json"] = json_file_name
-
-    # Verify that the current job is actually a failed job (otherwise, we don't want to download the log files)
-    job_data = read_json_file(json_file_name)
-    if not job_data:
-        print(f"Error: Failed to read the JSON data from {json_file_name}.")
-        sys.exit(1)
-    if not job_data['files'][0]['status'] == 'failed':
-        print(f"Error: The job with PandaID {args.pandaid} is not in a failed state - nothing to explain.")
-        sys.exit(1)
-    print(f"Confirmed that job {args.pandaid} is in a failed state.")
-
-    # Proceed to download the log files
-    for log_file in log_files:
-        log_file_name = fetch_data(args.pandaid, filename=log_file)
-        if not log_file_name:
-            print(f"Error: Failed to fetch the log file {log_file}.")
-            sys.exit(1)
-
-        # Keep track of the file names
-        file_dictionary[log_file] = log_file_name
-
-        # Process the log file content as needed
-        # For example, you can print it or analyze it further
-        print(f"Downloaded file: {log_file}, stored as {log_file_name}")
 
     # Extract the relevant parts for error analysis
 
