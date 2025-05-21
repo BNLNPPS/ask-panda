@@ -99,11 +99,15 @@ def main():
     log_files = args.log_files.split(',')
 
     # Fetch the log files from PanDA
+    log_file_dictionary = {}
     for log_file in log_files:
         log_file_name = fetch_file(args.pandaid, log_file)
         if not log_file_name:
             print(f"Error: Failed to fetch the log file {log_file}.")
             sys.exit(1)
+
+        # Keep track of the file names
+        log_file_dictionary[log_file] = log_file_name
 
         # Process the log file content as needed
         # For example, you can print it or analyze it further
