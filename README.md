@@ -68,8 +68,10 @@ python agent.py "Please list all of the PanDA pilot error codes" gemini  (demons
 ```
 python error_analysis_agent.py <PanDA ID: int> gemini
 ```
-**Note**: The error analysis agent will use the provided PanDA ID to fetch the pilotlog.txt for
-the given PanDA job. It will then use the provided model to analyze the reason for the error. Use an existing PanDA ID for a failed job.
+**Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
+the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
+and build a context for the model. The script will then use the provided model to analyze the reason for the error. 
+
 IN DEVELOPMENT: The error analysis agent is not yet fully functional. It will return a list of the error codes, but it will not be able to provide the full context of each error code. This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
 
 **Note**: Due to the limited context window of the models, the agent will 
