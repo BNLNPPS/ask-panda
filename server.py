@@ -25,12 +25,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastmcp import FastMCP
 import anthropic
-import openai
 import google.generativeai as genai
 import requests
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -40,7 +40,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://localhost:11434/api/generate")
 
-openai.api_key = OPENAI_API_KEY
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Load vector store once at startup (same model used during vectorstore creation)
@@ -82,8 +82,8 @@ class PandaMCP(FastMCP):
             return completion.content[0].text.strip()
 
         elif model == "openai":
-            completion = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+            completion = openai_client.ChatCompletion.create(
+                model="gpt-4.1-nano",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=512
             )
