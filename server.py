@@ -82,7 +82,7 @@ class PandaMCP(FastMCP):
             return completion.content[0].text.strip()
 
         elif model == "openai":
-            completion = openai_client.ChatCompletion.create(
+            completion = openai_client.chat.completions.create(
                 model="gpt-4.1-nano",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=512
