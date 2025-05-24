@@ -137,9 +137,9 @@ class PandaMCP(FastMCP):
             try:
                 llama_payload = {"model": "llama3", "prompt": prompt, "stream": False}
                 async with httpx.AsyncClient() as client: # Use httpx.AsyncClient
-                llama_response = await client.post(LLAMA_API_URL, json=llama_payload, timeout=30.0) # await post, added timeout
-                llama_response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
-                return llama_response.json().get("response", "").strip()
+                    llama_response = await client.post(LLAMA_API_URL, json=llama_payload, timeout=30.0) # await post, added timeout
+                    llama_response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
+                    return llama_response.json().get("response", "").strip()
             except httpx.HTTPStatusError as e: # Specific for HTTP errors like 4xx, 5xx
                 return f"Error interacting with LLaMA API: HTTP error ({e.response.status_code}) - {e.response.text}"
             except httpx.TimeoutException as e: # Specific for timeouts
