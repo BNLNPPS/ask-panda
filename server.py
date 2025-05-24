@@ -35,6 +35,7 @@ import httpx # Import httpx
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -44,7 +45,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://localhost:11434/api/generate")
 
-openai.api_key = OPENAI_API_KEY
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Load vector store once at startup (same model used during vectorstore creation)
@@ -61,7 +62,7 @@ vectorstore = FAISS.load_local(
 
 class PandaMCP(FastMCP):
     """PandaMCP class for handling RAG queries."""
-    async def rag_query(self, question: str, model: str) -> str:
+    def rag_query(self, question: str, model: str) -> str:
         """
         Perform a similarity search on the vector store and retrieve relevant documents.
 
