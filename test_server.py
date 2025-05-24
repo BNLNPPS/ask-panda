@@ -3,6 +3,9 @@ import os
 import asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from unittest.mock import patch, AsyncMock, MagicMock # Keep this
+from pytest_mock import MockerFixture # For type hinting mocker
+
 # Import necessary classes and constants from server.py
 from server import PandaMCP
 
@@ -20,11 +23,20 @@ import google.generativeai as genai
 DUMMY_SIMILARITY_SEARCH_RESULT = [MagicMock(page_content="dummy content 1"), MagicMock(page_content="dummy content 2")]
 
 @pytest.fixture
-def mcp_instance(mocker):
-    """Fixture to create a PandaMCP instance with mocked API keys."""
-    # Mock os.getenv used for API keys at the module level in server.py
-    # This needs to be active when server.py is imported or when PandaMCP accesses them.
-    # The ideal way is to patch 'server.ANTHROPIC_API_KEY', 'server.OPENAI_API_KEY', etc.
+def mcp_instance(mocker: MockerFixture) -> PandaMCP:
+    """
+    Provides a PandaMCP instance with mocked global API keys.
+
+    This fixture patches the global API key variables (e.g., `server.ANTHROPIC_API_KEY`)
+    to ensure that the PandaMCP instance can be created and used in tests
+    without requiring actual API keys to be set in the environment.
+
+    Args:
+        mocker (MockerFixture): The pytest-mock fixture for creating mocks.
+
+    Returns:
+        PandaMCP: An instance of the PandaMCP class.
+    """
     mocker.patch('server.ANTHROPIC_API_KEY', "fake_anthropic_key")
     mocker.patch('server.OPENAI_API_KEY', "fake_openai_key")
     mocker.patch('server.GEMINI_API_KEY', "fake_gemini_key")
@@ -34,35 +46,59 @@ def mcp_instance(mocker):
     return instance
 
 # Helper for patching vectorstore.similarity_search
-def patch_vectorstore_search(mocker, return_value=DUMMY_SIMILARITY_SEARCH_RESULT):
+def patch_vectorstore_search(mocker: MockerFixture, return_value=DUMMY_SIMILARITY_SEARCH_RESULT) -> MagicMock:
+    """
+    Patches `server.vectorstore.similarity_search` to return a predefined value.
+
+    Args:
+        mocker (MockerFixture): The pytest-mock fixture.
+        return_value (Any, optional): The value to be returned by the mocked
+                                      similarity_search. Defaults to
+                                      DUMMY_SIMILARITY_SEARCH_RESULT.
+
+    Returns:
+        MagicMock: The mock object returned by `mocker.patch`.
+    """
     return mocker.patch('server.vectorstore.similarity_search', return_value=return_value)
 
 # --- Test Cases for API Key Checks (targeting helper methods) ---
 
 @pytest.mark.asyncio
-async def test_call_anthropic_missing_key(mcp_instance, mocker):
+async def test_call_anthropic_missing_key(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Verifies ValueError for missing Anthropic API key in _call_anthropic.
+    """
     mocker.patch('server.ANTHROPIC_API_KEY', None)
     with pytest.raises(ValueError, match="Anthropic API key is not set"):
         await mcp_instance._call_anthropic("test prompt")
 
 @pytest.mark.asyncio
-async def test_call_openai_missing_key(mcp_instance, mocker):
+async def test_call_openai_missing_key(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Verifies ValueError for missing OpenAI API key in _call_openai.
+    """
     mocker.patch('server.OPENAI_API_KEY', None)
     with pytest.raises(ValueError, match="OpenAI API key is not set"):
         await mcp_instance._call_openai("test prompt")
 
 @pytest.mark.asyncio
-async def test_call_gemini_missing_key(mcp_instance, mocker):
+async def test_call_gemini_missing_key(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Verifies ValueError for missing Gemini API key in _call_gemini.
+    """
     mocker.patch('server.GEMINI_API_KEY', None)
     with pytest.raises(ValueError, match="Gemini API key is not set"):
         await mcp_instance._call_gemini("test prompt")
 
 # Test that it proceeds if key IS set (implicitly tested by API error tests for helper methods)
 @pytest.mark.asyncio
-async def test_call_anthropic_key_present(mcp_instance, mocker):
-    # ANTHROPIC_API_KEY is mocked to "fake_anthropic_key" in mcp_instance fixture
-    # We expect an error from the API call itself (mocked here), not a ValueError for the key.
-    # Patching 'server.AsyncAnthropic' as it's directly used in _call_anthropic
+async def test_call_anthropic_key_present(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that _call_anthropic proceeds to API call if key is present.
+
+    This is verified by checking that an APIError (mocked) is raised,
+    rather than a ValueError for a missing key.
+    """
     with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
         mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIError("Simulated API Error"))
@@ -74,7 +110,10 @@ async def test_call_anthropic_key_present(mcp_instance, mocker):
 
 # Anthropic
 @pytest.mark.asyncio
-async def test_call_anthropic_api_error(mcp_instance, mocker):
+async def test_call_anthropic_api_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_anthropic handling of anthropic.APIError.
+    """
     with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
         mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIError("Test Anthropic API Error"))
@@ -83,7 +122,10 @@ async def test_call_anthropic_api_error(mcp_instance, mocker):
         assert response == "Error interacting with Anthropic API: Test Anthropic API Error"
 
 @pytest.mark.asyncio
-async def test_call_anthropic_connection_error(mcp_instance, mocker):
+async def test_call_anthropic_connection_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_anthropic handling of anthropic.APIConnectionError.
+    """
     with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
         mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIConnectionError("Test Connection Error"))
@@ -93,7 +135,10 @@ async def test_call_anthropic_connection_error(mcp_instance, mocker):
 
 # OpenAI
 @pytest.mark.asyncio
-async def test_call_openai_api_error(mcp_instance, mocker):
+async def test_call_openai_api_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_openai handling of openai.APIError.
+    """
     api_error = openai.APIError("Test OpenAI API Error", request=None, body=None)
     with patch('server.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client_class:
         mock_client_instance = mock_openai_client_class.return_value
@@ -103,7 +148,10 @@ async def test_call_openai_api_error(mcp_instance, mocker):
         assert response == f"Error interacting with OpenAI API: {api_error}"
 
 @pytest.mark.asyncio
-async def test_call_openai_authentication_error(mcp_instance, mocker):
+async def test_call_openai_authentication_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_openai handling of openai.AuthenticationError.
+    """
     auth_error = openai.AuthenticationError("Test Auth Error", response=MagicMock(), body=None)
     with patch('server.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client_class:
         mock_client_instance = mock_openai_client_class.return_value
@@ -114,7 +162,10 @@ async def test_call_openai_authentication_error(mcp_instance, mocker):
 
 # LLaMA (httpx)
 @pytest.mark.asyncio
-async def test_call_llama_http_status_error(mcp_instance, mocker):
+async def test_call_llama_http_status_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_llama handling of httpx.HTTPStatusError.
+    """
     mock_response = httpx.Response(500, content=b"Server Error", request=MagicMock())
     http_error = httpx.HTTPStatusError("Server Error", request=MagicMock(), response=mock_response)
     
@@ -126,7 +177,10 @@ async def test_call_llama_http_status_error(mcp_instance, mocker):
         assert f"Error interacting with LLaMA API: HTTP error ({mock_response.status_code}) - {mock_response.text}" in response
 
 @pytest.mark.asyncio
-async def test_call_llama_request_error(mcp_instance, mocker):
+async def test_call_llama_request_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_llama handling of httpx.RequestError.
+    """
     req_error = httpx.RequestError("Test Request Error", request=MagicMock())
     with patch('server.httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client_class:
         mock_client_instance = mock_http_client_class.return_value.__aenter__.return_value
@@ -137,9 +191,11 @@ async def test_call_llama_request_error(mcp_instance, mocker):
 
 # Gemini
 @pytest.mark.asyncio
-async def test_call_gemini_google_api_error(mcp_instance, mocker):
+async def test_call_gemini_google_api_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_gemini handling of genai.core.exceptions.GoogleAPIError.
+    """
     api_error = genai.core.exceptions.GoogleAPIError("Test Gemini GoogleAPIError")
-    # Patching 'server.genai.GenerativeModel' as it's used like 'genai.GenerativeModel(...)' in _call_gemini
     with patch('server.genai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
         mock_model_instance = mock_gemini_model_class.return_value
         mock_model_instance.generate_content_async = AsyncMock(side_effect=api_error)
@@ -148,7 +204,10 @@ async def test_call_gemini_google_api_error(mcp_instance, mocker):
         assert response == f"Error interacting with Gemini API: Google API error - {api_error}"
 
 @pytest.mark.asyncio
-async def test_call_gemini_blocked_prompt_error(mcp_instance, mocker):
+async def test_call_gemini_blocked_prompt_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_gemini handling of genai.types.BlockedPromptException.
+    """
     blocked_error = genai.types.BlockedPromptException("Test Blocked Prompt")
     with patch('server.genai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
         mock_model_instance = mock_gemini_model_class.return_value
@@ -159,7 +218,10 @@ async def test_call_gemini_blocked_prompt_error(mcp_instance, mocker):
 
 # Generic Exception Test (using Anthropic helper as an example)
 @pytest.mark.asyncio
-async def test_call_anthropic_generic_exception(mcp_instance, mocker):
+async def test_call_anthropic_generic_exception(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_anthropic handling of a generic Exception.
+    """
     generic_exception = Exception("A wild generic error appears!")
     with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
         mock_client_instance = mock_anthropic_client_class.return_value
@@ -170,7 +232,10 @@ async def test_call_anthropic_generic_exception(mcp_instance, mocker):
 
 # --- Test Cases for Successful API Call (targeting helper methods) ---
 @pytest.mark.asyncio
-async def test_call_openai_successful(mcp_instance, mocker):
+async def test_call_openai_successful(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests a successful API call using the _call_openai helper.
+    """
     mock_choice = MagicMock()
     mock_choice.message.content = "  Mocked OpenAI Response  "
     mock_completion = MagicMock()
@@ -184,16 +249,17 @@ async def test_call_openai_successful(mcp_instance, mocker):
         assert response == "Mocked OpenAI Response"
 
 # --- Tests for rag_query Dispatching ---
-DUMMY_PROMPT = "Generated prompt for testing"
+DUMMY_PROMPT = "Generated prompt for testing" # This constant is not used in the tests below directly.
 
 @pytest.mark.asyncio
-async def test_rag_query_dispatches_to_anthropic(mcp_instance, mocker):
+async def test_rag_query_dispatches_to_anthropic(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that rag_query correctly dispatches to _call_anthropic.
+    """
     patch_vectorstore_search(mocker) # rag_query uses this
-    # Mock the helper method _call_anthropic on the instance
     mock_helper = mocker.patch.object(mcp_instance, '_call_anthropic', new_callable=AsyncMock)
     mock_helper.return_value = "anthropic_response"
     
-    # The actual prompt generation in rag_query needs to be considered for the assert
     docs = DUMMY_SIMILARITY_SEARCH_RESULT
     context = "\n\n".join(doc.page_content for doc in docs)
     expected_prompt = f"Answer based on the following context:\n{context}\n\nQuestion: test question"
@@ -203,7 +269,10 @@ async def test_rag_query_dispatches_to_anthropic(mcp_instance, mocker):
     assert response == "anthropic_response"
 
 @pytest.mark.asyncio
-async def test_rag_query_dispatches_to_openai(mcp_instance, mocker):
+async def test_rag_query_dispatches_to_openai(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that rag_query correctly dispatches to _call_openai.
+    """
     patch_vectorstore_search(mocker)
     mock_helper = mocker.patch.object(mcp_instance, '_call_openai', new_callable=AsyncMock)
     mock_helper.return_value = "openai_response"
@@ -217,7 +286,10 @@ async def test_rag_query_dispatches_to_openai(mcp_instance, mocker):
     assert response == "openai_response"
 
 @pytest.mark.asyncio
-async def test_rag_query_dispatches_to_llama(mcp_instance, mocker):
+async def test_rag_query_dispatches_to_llama(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that rag_query correctly dispatches to _call_llama.
+    """
     patch_vectorstore_search(mocker)
     mock_helper = mocker.patch.object(mcp_instance, '_call_llama', new_callable=AsyncMock)
     mock_helper.return_value = "llama_response"
@@ -231,7 +303,10 @@ async def test_rag_query_dispatches_to_llama(mcp_instance, mocker):
     assert response == "llama_response"
 
 @pytest.mark.asyncio
-async def test_rag_query_dispatches_to_gemini(mcp_instance, mocker):
+async def test_rag_query_dispatches_to_gemini(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that rag_query correctly dispatches to _call_gemini.
+    """
     patch_vectorstore_search(mocker)
     mock_helper = mocker.patch.object(mcp_instance, '_call_gemini', new_callable=AsyncMock)
     mock_helper.return_value = "gemini_response"
@@ -245,14 +320,20 @@ async def test_rag_query_dispatches_to_gemini(mcp_instance, mocker):
     assert response == "gemini_response"
 
 @pytest.mark.asyncio
-async def test_rag_query_unsupported_model(mcp_instance, mocker):
+async def test_rag_query_unsupported_model(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests that rag_query raises ValueError for an unsupported model.
+    """
     patch_vectorstore_search(mocker) # rag_query uses this before raising error for model
     with pytest.raises(ValueError, match="Unsupported model 'kryptonite'."):
         await mcp_instance.rag_query("test question", "kryptonite")
 
 # --- Test LLaMA JSONDecodeError (targeting helper) ---
 @pytest.mark.asyncio
-async def test_call_llama_json_decode_error(mcp_instance, mocker):
+async def test_call_llama_json_decode_error(mcp_instance: PandaMCP, mocker: MockerFixture):
+    """
+    Tests _call_llama handling of JSONDecodeError (via generic Exception).
+    """
     mock_llama_response = AsyncMock()
     mock_llama_response.raise_for_status = MagicMock() 
     decode_error = ValueError("Simulated JSONDecodeError") 
