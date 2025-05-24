@@ -20,38 +20,69 @@
 
 """This script is a simple command-line agent that interacts with a RAG (Retrieval-Augmented Generation) server."""
 
+import os  # Added for environment variable access
 import requests
 import sys
-from fastmcp import FastMCP
+# from fastmcp import FastMCP # Removed unused import
 
-mcp = FastMCP("panda")
+# mcp = FastMCP("panda") # Removed unused instance
 
 def ask(question: str, model: str) -> str:
     """
     Send a question to the RAG server and retrieve the answer.
 
+    The server URL is determined by the `RAG_SERVER_URL` environment
+    variable, defaulting to `"http://localhost:8000/rag_ask"` if not set.
+    The request to the server includes a 30-second timeout.
+
     Args:
         question (str): The question to ask the RAG server.
-        model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
+        model (str): The model to use for generating the answer
+                     (e.g., 'openai', 'anthropic').
 
     Returns:
-        str: The answer returned by the RAG server.
+        str: The answer from the RAG server. If an error occurs during the
+             request, or if the server responds with an error, a string
+             prefixed with "Error:" is returned detailing the issue.
     """
-    server_url = "http://localhost:8000/rag_ask"
-    response = requests.post(server_url, json={"question": question, "model": model})
-    if response.ok:
-        return response.json()["answer"]
-    return f"Error: {response.text}"
+    server_url = os.getenv("RAG_SERVER_URL", "http://localhost:8000/rag_ask")
+    try:
+        response = requests.post(server_url, json={"question": question, "model": model}, timeout=30)
+        if response.ok:
+            try:
+                return response.json()["answer"]
+            except requests.exceptions.JSONDecodeError:
+                return "Error: Could not decode JSON response from server."
+            except KeyError:
+                return "Error: 'answer' key missing in server response."
+        else:
+            try:
+                # Attempt to parse JSON for detailed error message
+                error_data = response.json()
+                if isinstance(error_data, dict) and "detail" in error_data:
+                    return f"Error from server: {error_data['detail']}"
+                # Fallback if "detail" key is not found or JSON is not a dict
+                return f"Error: Server returned status {response.status_code} - {response.text}"
+            except requests.exceptions.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                return f"Error: Server returned status {response.status_code} - {response.text}"
+    except requests.exceptions.RequestException as e:
+        return f"Error: Network issue or server unreachable - {e}"
 
-def main():
+def main() -> None:
     """
-    Check if the correct number of command-line arguments is provided.
+    Parse command-line arguments, call the RAG server, and print the response.
 
-    This ensures that the script is executed with exactly two arguments:
-    a question and a model.
+    This function serves as the main entry point for the command-line agent.
+    It expects two arguments: the question to ask and the model to use.
+    It calls the `ask` function to get a response from the RAG server.
+    If the `ask` function returns an error (a string prefixed with "Error:"),
+    this error is printed to `sys.stderr` and the script exits with status 1.
+    Otherwise, the successful answer is printed to `sys.stdout`.
 
     Raises:
-        SystemExit: If the number of arguments is not equal to 3.
+        SystemExit: If the number of command-line arguments is incorrect, or
+                    if an error occurs during the RAG server request.
     """
     if len(sys.argv) != 3:
         print("Usage: python agent.py \"<question>\" <model>")
@@ -59,7 +90,11 @@ def main():
 
     question, model = sys.argv[1], sys.argv[2]
     answer = ask(question, model)
-    print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
+    if answer.startswith("Error:"):
+        print(answer, file=sys.stderr)
+        sys.exit(1)
+    else:
+        print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
 
 if __name__ == "__main__":
     main()
