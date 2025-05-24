@@ -71,8 +71,7 @@ if GEMINI_API_KEY:
 embeddings: Union[OpenAIEmbeddings, HuggingFaceEmbeddings]
 
 # Load vector store once at startup (same model used during vectorstore creation)
-USE_OPENAI_EMBEDDINGS: bool = os.getenv("USE_OPENAI_EMBEDDINGS", "false").lower() == "true"
-if USE_OPENAI_EMBEDDINGS:  # Controlled by the USE_OPENAI_EMBEDDINGS environment variable
+if False:  # This block is currently not executed, kept for potential future use
     embeddings = OpenAIEmbeddings()
 else:
     model_name: str = "all-MiniLM-L6-v2"

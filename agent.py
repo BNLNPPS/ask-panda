@@ -51,7 +51,7 @@ def ask(question: str, model: str) -> str:
         if response.ok:
             try:
                 return response.json()["answer"]
-            except requests.exceptions.JSONDecodeError:
+            except requests.JSONDecodeError:  # Updated to requests.JSONDecodeError
                 return "Error: Could not decode JSON response from server."
             except KeyError:
                 return "Error: 'answer' key missing in server response."
@@ -63,9 +63,11 @@ def ask(question: str, model: str) -> str:
                     return f"Error from server: {error_data['detail']}"
                 # Fallback if "detail" key is not found or JSON is not a dict
                 return f"Error: Server returned status {response.status_code} - {response.text}"
-            except requests.exceptions.JSONDecodeError:
-                # Fallback if JSON parsing fails
-                return f"Error: Server returned status {response.status_code} - {response.text}"
+            except requests.JSONDecodeError:  # Updated to requests.JSONDecodeError
+                # Fall through to the generic error message if JSON parsing fails
+                pass
+            # Fallback if JSON parsing fails or "detail" is not in a dict
+            return f"Error: Server returned status {response.status_code} - {response.text}"
     except requests.exceptions.RequestException as e:
         return f"Error: Network issue or server unreachable - {e}"
 
