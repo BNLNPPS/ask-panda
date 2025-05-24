@@ -37,239 +37,231 @@ def mcp_instance(mocker):
 def patch_vectorstore_search(mocker, return_value=DUMMY_SIMILARITY_SEARCH_RESULT):
     return mocker.patch('server.vectorstore.similarity_search', return_value=return_value)
 
-# --- Test Cases for API Key Checks ---
+# --- Test Cases for API Key Checks (targeting helper methods) ---
 
 @pytest.mark.asyncio
-async def test_rag_query_anthropic_missing_key(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    mocker.patch('server.ANTHROPIC_API_KEY', None) # Mock the module-level variable
+async def test_call_anthropic_missing_key(mcp_instance, mocker):
+    mocker.patch('server.ANTHROPIC_API_KEY', None)
     with pytest.raises(ValueError, match="Anthropic API key is not set"):
-        await mcp_instance.rag_query("test question", "anthropic")
+        await mcp_instance._call_anthropic("test prompt")
 
 @pytest.mark.asyncio
-async def test_rag_query_openai_missing_key(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_openai_missing_key(mcp_instance, mocker):
     mocker.patch('server.OPENAI_API_KEY', None)
     with pytest.raises(ValueError, match="OpenAI API key is not set"):
-        await mcp_instance.rag_query("test question", "openai")
+        await mcp_instance._call_openai("test prompt")
 
 @pytest.mark.asyncio
-async def test_rag_query_gemini_missing_key(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_gemini_missing_key(mcp_instance, mocker):
     mocker.patch('server.GEMINI_API_KEY', None)
     with pytest.raises(ValueError, match="Gemini API key is not set"):
-        await mcp_instance.rag_query("test question", "gemini")
+        await mcp_instance._call_gemini("test prompt")
 
-# Test that it proceeds if key IS set (implicitly tested by API error tests, but can be explicit)
+# Test that it proceeds if key IS set (implicitly tested by API error tests for helper methods)
 @pytest.mark.asyncio
-async def test_rag_query_anthropic_key_present(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    # ANTHROPIC_API_KEY is already mocked to "fake_anthropic_key" in mcp_instance fixture
-    # We expect an error from the API call itself, not a ValueError for the key.
-    with patch('anthropic.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client:
-        mock_client_instance = mock_anthropic_client.return_value
+async def test_call_anthropic_key_present(mcp_instance, mocker):
+    # ANTHROPIC_API_KEY is mocked to "fake_anthropic_key" in mcp_instance fixture
+    # We expect an error from the API call itself (mocked here), not a ValueError for the key.
+    # Patching 'server.AsyncAnthropic' as it's directly used in _call_anthropic
+    with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
+        mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIError("Simulated API Error"))
         
-        response = await mcp_instance.rag_query("test question", "anthropic")
-        assert "Error interacting with Anthropic API" in response # Confirms it passed key check
+        response = await mcp_instance._call_anthropic("test prompt")
+        assert "Error interacting with Anthropic API" in response
 
-# --- Test Cases for API Call Error Handling ---
+# --- Test Cases for API Call Error Handling (targeting helper methods) ---
 
 # Anthropic
 @pytest.mark.asyncio
-async def test_rag_query_anthropic_api_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    with patch('anthropic.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client:
-        mock_client_instance = mock_anthropic_client.return_value
+async def test_call_anthropic_api_error(mcp_instance, mocker):
+    with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
+        mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIError("Test Anthropic API Error"))
         
-        response = await mcp_instance.rag_query("test question", "anthropic")
+        response = await mcp_instance._call_anthropic("test prompt")
         assert response == "Error interacting with Anthropic API: Test Anthropic API Error"
 
 @pytest.mark.asyncio
-async def test_rag_query_anthropic_connection_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    with patch('anthropic.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client:
-        mock_client_instance = mock_anthropic_client.return_value
+async def test_call_anthropic_connection_error(mcp_instance, mocker):
+    with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
+        mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=anthropic.APIConnectionError("Test Connection Error"))
         
-        response = await mcp_instance.rag_query("test question", "anthropic")
+        response = await mcp_instance._call_anthropic("test prompt")
         assert response == "Error interacting with Anthropic API: Connection error - Test Connection Error"
 
 # OpenAI
 @pytest.mark.asyncio
-async def test_rag_query_openai_api_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    # For openai.APIError, the constructor takes at least one argument, e.g., a message.
-    # Depending on the version and specific error type, it might need `request` or `body`.
-    # For a generic APIError, a message should suffice.
+async def test_call_openai_api_error(mcp_instance, mocker):
     api_error = openai.APIError("Test OpenAI API Error", request=None, body=None)
-    with patch('openai.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client:
-        mock_client_instance = mock_openai_client.return_value
+    with patch('server.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client_class:
+        mock_client_instance = mock_openai_client_class.return_value
         mock_client_instance.chat.completions.create = AsyncMock(side_effect=api_error)
         
-        response = await mcp_instance.rag_query("test question", "openai")
+        response = await mcp_instance._call_openai("test prompt")
         assert response == f"Error interacting with OpenAI API: {api_error}"
 
-
 @pytest.mark.asyncio
-async def test_rag_query_openai_authentication_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_openai_authentication_error(mcp_instance, mocker):
     auth_error = openai.AuthenticationError("Test Auth Error", response=MagicMock(), body=None)
-    with patch('openai.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client:
-        mock_client_instance = mock_openai_client.return_value
+    with patch('server.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client_class:
+        mock_client_instance = mock_openai_client_class.return_value
         mock_client_instance.chat.completions.create = AsyncMock(side_effect=auth_error)
         
-        response = await mcp_instance.rag_query("test question", "openai")
+        response = await mcp_instance._call_openai("test prompt")
         assert response == f"Error interacting with OpenAI API: Authentication failed - {auth_error}"
 
 # LLaMA (httpx)
 @pytest.mark.asyncio
-async def test_rag_query_llama_http_status_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    # Create a mock response for HTTPStatusError
+async def test_call_llama_http_status_error(mcp_instance, mocker):
     mock_response = httpx.Response(500, content=b"Server Error", request=MagicMock())
     http_error = httpx.HTTPStatusError("Server Error", request=MagicMock(), response=mock_response)
     
-    with patch('httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client:
-        mock_client_instance = mock_http_client.return_value.__aenter__.return_value # Handle async context manager
+    with patch('server.httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client_class: # Note: server.httpx.AsyncClient
+        mock_client_instance = mock_http_client_class.return_value.__aenter__.return_value
         mock_client_instance.post = AsyncMock(side_effect=http_error)
         
-        response = await mcp_instance.rag_query("test question", "llama")
+        response = await mcp_instance._call_llama("test prompt")
         assert f"Error interacting with LLaMA API: HTTP error ({mock_response.status_code}) - {mock_response.text}" in response
 
 @pytest.mark.asyncio
-async def test_rag_query_llama_request_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_llama_request_error(mcp_instance, mocker):
     req_error = httpx.RequestError("Test Request Error", request=MagicMock())
-    with patch('httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client:
-        mock_client_instance = mock_http_client.return_value.__aenter__.return_value
+    with patch('server.httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client_class:
+        mock_client_instance = mock_http_client_class.return_value.__aenter__.return_value
         mock_client_instance.post = AsyncMock(side_effect=req_error)
         
-        response = await mcp_instance.rag_query("test question", "llama")
+        response = await mcp_instance._call_llama("test prompt")
         assert response == f"Error interacting with LLaMA API: Request error - {req_error}"
 
 # Gemini
 @pytest.mark.asyncio
-async def test_rag_query_gemini_google_api_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    # google.api_core.exceptions.GoogleAPIError is a broad class.
-    # A subclass like InternalServerError or ServiceUnavailable might be more specific if needed.
-    # For now, the base class with a message.
+async def test_call_gemini_google_api_error(mcp_instance, mocker):
     api_error = genai.core.exceptions.GoogleAPIError("Test Gemini GoogleAPIError")
-    with patch('google.generativeai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
+    # Patching 'server.genai.GenerativeModel' as it's used like 'genai.GenerativeModel(...)' in _call_gemini
+    with patch('server.genai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
         mock_model_instance = mock_gemini_model_class.return_value
         mock_model_instance.generate_content_async = AsyncMock(side_effect=api_error)
         
-        response = await mcp_instance.rag_query("test question", "gemini")
+        response = await mcp_instance._call_gemini("test prompt")
         assert response == f"Error interacting with Gemini API: Google API error - {api_error}"
 
 @pytest.mark.asyncio
-async def test_rag_query_gemini_blocked_prompt_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_gemini_blocked_prompt_error(mcp_instance, mocker):
     blocked_error = genai.types.BlockedPromptException("Test Blocked Prompt")
-    with patch('google.generativeai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
+    with patch('server.genai.GenerativeModel', new_callable=AsyncMock) as mock_gemini_model_class:
         mock_model_instance = mock_gemini_model_class.return_value
         mock_model_instance.generate_content_async = AsyncMock(side_effect=blocked_error)
         
-        response = await mcp_instance.rag_query("test question", "gemini")
+        response = await mcp_instance._call_gemini("test prompt")
         assert response == f"Error interacting with Gemini API: Prompt was blocked - {blocked_error}"
 
-
-# Generic Exception Test (using Anthropic as an example)
+# Generic Exception Test (using Anthropic helper as an example)
 @pytest.mark.asyncio
-async def test_rag_query_anthropic_generic_exception(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+async def test_call_anthropic_generic_exception(mcp_instance, mocker):
     generic_exception = Exception("A wild generic error appears!")
-    with patch('anthropic.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client:
-        mock_client_instance = mock_anthropic_client.return_value
+    with patch('server.AsyncAnthropic', new_callable=AsyncMock) as mock_anthropic_client_class:
+        mock_client_instance = mock_anthropic_client_class.return_value
         mock_client_instance.messages.create = AsyncMock(side_effect=generic_exception)
         
-        response = await mcp_instance.rag_query("test question", "anthropic")
+        response = await mcp_instance._call_anthropic("test prompt")
         assert response == f"An unexpected error occurred with Anthropic API: {generic_exception}"
 
-# --- Test Case for Successful API Call ---
+# --- Test Cases for Successful API Call (targeting helper methods) ---
 @pytest.mark.asyncio
-async def test_rag_query_openai_successful_call(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    
-    # Mock successful response from OpenAI
-    # Based on server.py: completion.choices[0].message.content.strip()
+async def test_call_openai_successful(mcp_instance, mocker):
     mock_choice = MagicMock()
     mock_choice.message.content = "  Mocked OpenAI Response  "
-    
     mock_completion = MagicMock()
     mock_completion.choices = [mock_choice]
     
-    with patch('openai.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client:
-        mock_client_instance = mock_openai_client.return_value
+    with patch('server.AsyncOpenAI', new_callable=AsyncMock) as mock_openai_client_class:
+        mock_client_instance = mock_openai_client_class.return_value
         mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_completion)
         
-        response = await mcp_instance.rag_query("test question", "openai")
+        response = await mcp_instance._call_openai("test prompt")
         assert response == "Mocked OpenAI Response"
 
-# --- Test for unsupported model ---
+# --- Tests for rag_query Dispatching ---
+DUMMY_PROMPT = "Generated prompt for testing"
+
+@pytest.mark.asyncio
+async def test_rag_query_dispatches_to_anthropic(mcp_instance, mocker):
+    patch_vectorstore_search(mocker) # rag_query uses this
+    # Mock the helper method _call_anthropic on the instance
+    mock_helper = mocker.patch.object(mcp_instance, '_call_anthropic', new_callable=AsyncMock)
+    mock_helper.return_value = "anthropic_response"
+    
+    # The actual prompt generation in rag_query needs to be considered for the assert
+    docs = DUMMY_SIMILARITY_SEARCH_RESULT
+    context = "\n\n".join(doc.page_content for doc in docs)
+    expected_prompt = f"Answer based on the following context:\n{context}\n\nQuestion: test question"
+
+    response = await mcp_instance.rag_query("test question", "anthropic")
+    mock_helper.assert_called_once_with(expected_prompt)
+    assert response == "anthropic_response"
+
+@pytest.mark.asyncio
+async def test_rag_query_dispatches_to_openai(mcp_instance, mocker):
+    patch_vectorstore_search(mocker)
+    mock_helper = mocker.patch.object(mcp_instance, '_call_openai', new_callable=AsyncMock)
+    mock_helper.return_value = "openai_response"
+    
+    docs = DUMMY_SIMILARITY_SEARCH_RESULT
+    context = "\n\n".join(doc.page_content for doc in docs)
+    expected_prompt = f"Answer based on the following context:\n{context}\n\nQuestion: test question"
+
+    response = await mcp_instance.rag_query("test question", "openai")
+    mock_helper.assert_called_once_with(expected_prompt)
+    assert response == "openai_response"
+
+@pytest.mark.asyncio
+async def test_rag_query_dispatches_to_llama(mcp_instance, mocker):
+    patch_vectorstore_search(mocker)
+    mock_helper = mocker.patch.object(mcp_instance, '_call_llama', new_callable=AsyncMock)
+    mock_helper.return_value = "llama_response"
+
+    docs = DUMMY_SIMILARITY_SEARCH_RESULT
+    context = "\n\n".join(doc.page_content for doc in docs)
+    expected_prompt = f"Answer based on the following context:\n{context}\n\nQuestion: test question"
+    
+    response = await mcp_instance.rag_query("test question", "llama")
+    mock_helper.assert_called_once_with(expected_prompt)
+    assert response == "llama_response"
+
+@pytest.mark.asyncio
+async def test_rag_query_dispatches_to_gemini(mcp_instance, mocker):
+    patch_vectorstore_search(mocker)
+    mock_helper = mocker.patch.object(mcp_instance, '_call_gemini', new_callable=AsyncMock)
+    mock_helper.return_value = "gemini_response"
+
+    docs = DUMMY_SIMILARITY_SEARCH_RESULT
+    context = "\n\n".join(doc.page_content for doc in docs)
+    expected_prompt = f"Answer based on the following context:\n{context}\n\nQuestion: test question"
+
+    response = await mcp_instance.rag_query("test question", "gemini")
+    mock_helper.assert_called_once_with(expected_prompt)
+    assert response == "gemini_response"
+
 @pytest.mark.asyncio
 async def test_rag_query_unsupported_model(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
+    patch_vectorstore_search(mocker) # rag_query uses this before raising error for model
     with pytest.raises(ValueError, match="Unsupported model 'kryptonite'."):
         await mcp_instance.rag_query("test question", "kryptonite")
 
-# --- Test LLaMA JSONDecodeError ---
+# --- Test LLaMA JSONDecodeError (targeting helper) ---
 @pytest.mark.asyncio
-async def test_rag_query_llama_json_decode_error(mcp_instance, mocker):
-    patch_vectorstore_search(mocker)
-    
-    # Mock the response object that will be returned by httpx.post
+async def test_call_llama_json_decode_error(mcp_instance, mocker):
     mock_llama_response = AsyncMock()
-    mock_llama_response.raise_for_status = MagicMock() # Does not raise error
-    # Simulate json.JSONDecodeError when .json() is called
-    decode_error = ValueError("Simulated JSONDecodeError") # In httpx, this might be json.JSONDecodeError
+    mock_llama_response.raise_for_status = MagicMock() 
+    decode_error = ValueError("Simulated JSONDecodeError") 
     mock_llama_response.json = MagicMock(side_effect=decode_error)
 
-    with patch('httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client:
-        mock_client_instance = mock_http_client.return_value.__aenter__.return_value
+    with patch('server.httpx.AsyncClient', new_callable=AsyncMock) as mock_http_client_class:
+        mock_client_instance = mock_http_client_class.return_value.__aenter__.return_value
         mock_client_instance.post = AsyncMock(return_value=mock_llama_response)
         
-        response = await mcp_instance.rag_query("test question", "llama")
-        # The current code in server.py for LLaMA catches general Exception for JSONDecodeError.
-        # Let's ensure the message reflects that.
+        response = await mcp_instance._call_llama("test prompt")
         assert f"An unexpected error occurred with LLaMA API: {decode_error}" in response
-        # If server.py was more specific:
-        # assert f"Error interacting with LLaMA API: Could not decode JSON response - {decode_error}" in response
-
-# To make the LLaMA JSONDecodeError test more precise against the server code's
-# actual generic exception handler for LLaMA, the assertion should match:
-# "An unexpected error occurred with LLaMA API: {e}"
-# The current server.py LLaMA error handling for JSONDecodeError is:
-#       except Exception as e: # Catch-all for other errors, e.g. JSONDecodeError if response.json() fails
-#           return f"An unexpected error occurred with LLaMA API: {e}"
-# So the test `test_rag_query_llama_json_decode_error` is correctly asserting against this.
-
-# Note on openai.APIError:
-# The constructor for openai.APIError is openai.APIError(message, request, body).
-# Providing None for request and body is acceptable for testing.
-# Example: openai.APIError("Test API Error", request=MagicMock(), body=None)
-# Corrected this in the test_rag_query_openai_api_error.
-
-# Note on httpx.HTTPStatusError:
-# Constructor: httpx.HTTPStatusError(message, *, request, response)
-# The test was: httpx.HTTPStatusError("Server Error", request=MagicMock(), response=MagicMock())
-# Need to ensure the mocked response has status_code and text attributes for the f-string in server.py.
-
-# Note on genai.core.exceptions.GoogleAPIError:
-# This is often a base class. More specific errors like `InternalServerError` or `ServiceUnavailable`
-# might be raised by the SDK. For testing the broad catch, `GoogleAPIError` is fine.
-# Constructor is simple: `GoogleAPIError(message)`.
-
-# Final check on AsyncMock for httpx.AsyncClient context manager:
-# `mock_client_instance = mock_http_client.return_value.__aenter__.return_value` is correct.
-# `mock_client_instance.post` is then the async method to mock.
-
-# The OpenAI AuthenticationError also needs a `response` argument.
-# openai.AuthenticationError(message, response, body)
-# Corrected this in the test_rag_query_openai_authentication_error.
-# Using MagicMock() for the response object in error constructors is fine.
-
-# Looks good.
-print("test_server.py content generated.")
+print("test_server.py content updated for refactoring.")
