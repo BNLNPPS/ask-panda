@@ -35,7 +35,6 @@ import httpx # Import httpx
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from openai import OpenAI
 
 app = FastAPI()
 
@@ -45,7 +44,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://localhost:11434/api/generate")
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Load vector store once at startup (same model used during vectorstore creation)
@@ -62,7 +61,7 @@ vectorstore = FAISS.load_local(
 
 class PandaMCP(FastMCP):
     """PandaMCP class for handling RAG queries."""
-    def rag_query(self, question: str, model: str) -> str:
+    async def rag_query(self, question: str, model: str) -> str:
         """
         Perform a similarity search on the vector store and retrieve relevant documents.
 
@@ -138,8 +137,8 @@ class PandaMCP(FastMCP):
                 llama_payload = {"model": "llama3", "prompt": prompt, "stream": False}
                 async with httpx.AsyncClient() as client: # Use httpx.AsyncClient
                     llama_response = await client.post(LLAMA_API_URL, json=llama_payload, timeout=30.0) # await post, added timeout
-                    llama_response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
-                    return llama_response.json().get("response", "").strip()
+                llama_response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
+                return llama_response.json().get("response", "").strip()
             except httpx.HTTPStatusError as e: # Specific for HTTP errors like 4xx, 5xx
                 return f"Error interacting with LLaMA API: HTTP error ({e.response.status_code}) - {e.response.text}"
             except httpx.TimeoutException as e: # Specific for timeouts
