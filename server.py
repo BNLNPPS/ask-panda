@@ -153,7 +153,7 @@ class PandaMCP(FastMCP):
             if not GEMINI_API_KEY:
                 raise ValueError("Gemini API key is not set. Please set the GEMINI_API_KEY environment variable.")
             try:
-                gemini_model = genai.GenerativeModel('models/gemini-1.5-flash')
+                gemini_model = genai.GenerativeModel('models/gemini-2.0-flash')
                 response = await gemini_model.generate_content_async(prompt) # Use generate_content_async
                 return response.text.strip()
             except genai.types.BlockedPromptException as e:
