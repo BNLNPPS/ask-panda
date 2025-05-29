@@ -79,4 +79,14 @@ not be able to answer all of the questions. The last example can be used as a be
 The agent will return a list of the error codes, but it will not be able to provide the full context of each error code. 
 This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
 
+# Vector store
 
+Note that the vector store is created and maintained by the server. The contents of the vector store are stored in the `vectorstore` directory
+and can be inspected using the `vectorstore_inspector.py` script.
+
+```
+python vectorstore_inspector.py --dump
+```
+
+If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option, 
+the script will print the contents of the vector store in a human-readable form (also to stdout).
