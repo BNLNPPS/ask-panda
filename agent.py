@@ -23,6 +23,7 @@
 import os  # Added for environment variable access
 import requests
 import sys
+from json import JSONDecodeError  # Added for specific exception handling
 # from fastmcp import FastMCP # Removed unused import
 
 # mcp = FastMCP("panda") # Removed unused instance
@@ -51,7 +52,7 @@ def ask(question: str, model: str) -> str:
         if response.ok:
             try:
                 return response.json()["answer"]
-            except requests.JSONDecodeError:  # Updated to requests.JSONDecodeError
+            except JSONDecodeError:  # Changed to use imported JSONDecodeError
                 return "Error: Could not decode JSON response from server."
             except KeyError:
                 return "Error: 'answer' key missing in server response."
@@ -63,7 +64,7 @@ def ask(question: str, model: str) -> str:
                     return f"Error from server: {error_data['detail']}"
                 # Fallback if "detail" key is not found or JSON is not a dict
                 return f"Error: Server returned status {response.status_code} - {response.text}"
-            except requests.JSONDecodeError:  # Updated to requests.JSONDecodeError
+            except JSONDecodeError:  # Changed to use imported JSONDecodeError
                 # Fall through to the generic error message if JSON parsing fails
                 pass
             # Fallback if JSON parsing fails or "detail" is not in a dict
