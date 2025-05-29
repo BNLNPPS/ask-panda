@@ -39,21 +39,18 @@ export GEMINI_API_KEY='your_gemini_api_key'
 export LLAMA_API_URL='http://localhost:11434/api/generate'  # For Ollama Llama3 model
 ```
 
-# AI Chatbot
-0. Create the vector store for the static conversation:
-```
-python create_vectorstore.py
-```
-This will create a vector store for the static conversation. The vector store is a simple SQLite database that 
-contains the embeddings for the static conversation. The vector store is used to retrieve the most relevant 
-context for the given question.
-
-This step is only needed once. The vector store will be created in the same directory as the script.
+# MCP server and agent
 
 1. Start the Server:
 ```
 uvicorn server:app --reload
 ```
+When the server is started, it will create a vector store for the static conversation based on documents in the
+resources directory. The server will monitor the resources directory for changes (once per minute) and will update the vector store when necessary.
+New documents can be added to the resources directory, and the server will automatically update the vector store.
+
+The server will write all log messages to the `ask_panda_server_log.txt` file in the current directory.
+
 2. Run the Agent (example queries):
 ```
 python agent.py "What is PanDA?" openai
