@@ -49,6 +49,9 @@ When the server is started, it will create a vector store for the static convers
 resources directory. The server will monitor the resources directory for changes (once per minute) and will update the vector store when necessary.
 New documents can be added to the resources directory, and the server will automatically update the vector store.
 
+Note: when the vector store is being updated, it is currently not available, i.e. any queries will be delayed until the update is complete.
+The update and usage is using thread locking, so the server will not crash if a query is made while the vector store is being updated.
+
 The server will write all log messages to the `ask_panda_server_log.txt` file in the current directory.
 
 2. Run the Agent (example queries):
