@@ -22,12 +22,24 @@
 
 import argparse
 import json
+import logging
 import re
 import requests
 import sys
-from fastmcp import FastMCP
 
+from fastmcp import FastMCP
+from typing import Optional
 from https import download_data
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler("error_analyzer.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP("panda")
 
@@ -51,7 +63,7 @@ def ask(question: str, model: str) -> str:
     return f"Error: {response.text}"
 
 
-def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> str or None:
+def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> Optional[str]:
     """
     Fetches a given file from PanDA.
 
@@ -63,11 +75,12 @@ def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> s
     Returns:
         str or None: The name of the downloaded file.
     """
-    if jsondata:
-        url = f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
-    else:
-        url = f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
-    print(f"Will download file from: {url}")
+    url = (
+        f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
+        if jsondata
+        else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+    )
+    logger.info(f"Downloading file from: {url}")
 
     response = download_data(url) #  post(url)
     if response and isinstance(response, str):
@@ -77,10 +90,11 @@ def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> s
         response = re.sub(r'([a-zA-Z0-9\])])(?=[A-Z])', r'\1\n', response)  # ensure that each line ends with \n
         return response
     else:
+        logger.error(f"Failed to fetch data for PandaID {panda_id} with filename {filename}.")
         return None
 
 
-def read_json_file(file_path: str) -> dict or None:
+def read_json_file(file_path: str) -> Optional[dict]:
     """
     Reads a JSON file and returns its contents as a dictionary.
 
@@ -90,8 +104,12 @@ def read_json_file(file_path: str) -> dict or None:
     Returns:
         dict or None: The contents of the JSON file as a dictionary, or None if the file cannot be read.
     """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning(f"Failed to read JSON file {file_path}: {e}")
+        return None
 
     return data
 
