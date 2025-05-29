@@ -31,26 +31,42 @@ vector store for context retrieval, and defines a PandaMCP class to handle
 the RAG logic and interaction with the different LLMs.
 """
 
+# Set up basic logging configuration at the top of your file
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s:%(message)s',
+    handlers=[
+        logging.FileHandler("ask_panda_server_log.txt"),
+        logging.StreamHandler()  # Optional: keeps logs visible in console too
+    ]
+)
+logger = logging.getLogger(__name__)
+
+import anthropic
+import google.generativeai as genai
+import httpx  # Import httpx
+import openai
 import os
+import threading
+import time
 
 # import asyncio  # No longer explicitly needed after httpx integration
+from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastmcp import FastMCP
-import anthropic
-from anthropic import AsyncAnthropic  # Import AsyncAnthropic
-import openai
-from openai import AsyncOpenAI  # Import AsyncOpenAI
-import google.generativeai as genai
 
 # import requests # No longer needed for LLaMA
-import httpx  # Import httpx
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from typing import Dict, Optional, Union  # For type hinting
 
 app: FastAPI = FastAPI()
+mcp = None  # declare globally
 
 # Set up API keys from environment variables
 ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
@@ -67,21 +83,14 @@ if OPENAI_API_KEY:
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# Define type for embeddings before assignment
-embeddings: Union[OpenAIEmbeddings, HuggingFaceEmbeddings]
+#vectorstore: FAISS = FAISS.load_local(
+#    "vectorstore",
+#    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
+#    allow_dangerous_deserialization=True,  # Safe if it's your own data
+#)
 
-# Load vector store once at startup (same model used during vectorstore creation)
-if False:  # This block is currently not executed, kept for potential future use
-    embeddings = OpenAIEmbeddings()
-else:
-    model_name: str = "all-MiniLM-L6-v2"
-    embeddings = HuggingFaceEmbeddings(model_name=model_name)
-
-vectorstore: FAISS = FAISS.load_local(
-    "vectorstore",
-    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
-    allow_dangerous_deserialization=True,  # Safe if it's your own data
-)
+VECTORSTORE_DIR = Path("vectorstore")
+RESOURCES_DIR = Path("resources")
 
 
 class PandaMCP(FastMCP):
@@ -93,6 +102,119 @@ class PandaMCP(FastMCP):
     context retrieved from a vector store. It initializes with a name
     passed to the FastMCP base class.
     """
+
+    def __init__(self, namespace: str, resources_dir: Path, vectorstore_dir: Path):
+        """
+        Initialize the PandaMCP instance with the given namespace, resources directory,
+
+        Args:
+            str: namespace: The namespace for the PandaMCP instance.
+            Path: resources_dir: Path to the directory containing resources.
+            Path: vectorstore_dir: Path to the directory where the vector store is saved.
+        """
+        super().__init__(namespace)
+
+        # Define type for embeddings before assignment
+        embeddings: Union[OpenAIEmbeddings, HuggingFaceEmbeddings]
+
+        # Load vector store once at startup (same model used during vectorstore creation)
+        if False:  # This block is currently not executed, kept for potential future use
+            embeddings = OpenAIEmbeddings()
+        else:
+            model_name: str = "all-MiniLM-L6-v2"
+            embeddings = HuggingFaceEmbeddings(model_name=model_name)
+
+        self.resources_dir = resources_dir
+        self.vectorstore_dir = vectorstore_dir
+        self.embeddings = embeddings
+        self.vectorstore_lock = threading.Lock()
+        self.known_files = set()
+
+        # Initial vectorstore build
+        with self.vectorstore_lock:
+            self.vectorstore = self.build_vectorstore()
+
+    def load_documents(self) -> list:
+        """
+        Load text documents from the directory.
+
+        This method scans the `resources_dir` for `.txt` files, loads them using
+        `TextLoader`, and returns a list of documents.
+
+        Returns:
+            list: A list of documents loaded from the text files in the
+                  `resources_dir`. Each document is represented as a dictionary
+                  with content and metadata.
+        """
+        documents = []
+        for file_path in self.resources_dir.glob("*.txt"):
+            loader = TextLoader(str(file_path))
+            documents.extend(loader.load())
+
+        return documents
+
+    def build_vectorstore(self) -> FAISS:
+        """
+        Build the FAISS vectorstore.
+
+        Returns:
+            FAISS: The FAISS vectorstore containing the document chunks.
+        """
+        documents = self.load_documents()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+        chunks = splitter.split_documents(documents)
+        vectorstore = FAISS.from_documents(chunks, self.embeddings)
+        vectorstore.save_local(str(self.vectorstore_dir))
+        self.known_files = {file: file.stat().st_mtime for file in self.resources_dir.glob("*.txt")}
+        logger.info(f"Vectorstore built with {len(chunks)} chunks from {len(documents)} documents.")
+
+        return vectorstore
+
+    def update_vectorstore_periodically(self, interval_seconds: int = 60):
+        """
+        Periodically check for updates in the vectorstore and rebuild it if necessary.
+
+        Args:
+            interval_seconds:
+
+        Returns:
+
+        """
+        logger.info("Background vectorstore updater thread started.")
+        while True:
+            try:
+                time.sleep(interval_seconds)
+                updated = False
+
+                # Explicitly create a dict
+                current_files = {
+                    file: file.stat().st_mtime for file in self.resources_dir.glob("*.txt")
+                }
+
+                # Check for added or removed files
+                if set(current_files.keys()) != set(self.known_files.keys()):
+                    updated = True
+                    logger.info("Detected new or removed documents.")
+
+                # Check for modified files explicitly and safely
+                else:
+                    for file, mtime in current_files.items():
+                        old_mtime = self.known_files.get(file)
+                        if old_mtime is None or old_mtime != mtime:
+                            updated = True
+                            logger.info(f"Detected modified document: {file.name}")
+                            break
+
+                if updated:
+                    logger.info("Updating vectorstore...")
+                    with self.vectorstore_lock:
+                        self.build_vectorstore()
+                    logger.info("Vectorstore updated successfully.")
+
+                self.known_files = current_files
+
+            except Exception as e:
+                logger.warning(f"An error occurred during vectorstore update: {e}")
 
     async def _call_anthropic(self, prompt: str) -> str:
         """
@@ -114,7 +236,7 @@ class PandaMCP(FastMCP):
                 "Please set the ANTHROPIC_API_KEY environment variable."
             )
         try:
-            client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)  # Use AsyncAnthropic
+            client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
             completion = await client.messages.create(  # await the call
                 model="claude-3-haiku-20240307",
                 max_tokens=512,
@@ -158,7 +280,7 @@ class PandaMCP(FastMCP):
             )
         try:
             # Instantiate AsyncOpenAI client
-            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
             # Use new syntax for chat completions and await
             completion = await client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -289,7 +411,9 @@ class PandaMCP(FastMCP):
         Raises:
             ValueError: If an unsupported model identifier is provided.
         """
-        docs = vectorstore.similarity_search(question, k=5)
+        with self.vectorstore_lock:
+            docs = self.vectorstore.similarity_search(question, k=5)
+
         context = "\n\n".join(doc.page_content for doc in docs)
         prompt = (  # noqa: E501
             "Answer based on the following context:\n"
@@ -311,10 +435,6 @@ class PandaMCP(FastMCP):
             )
 
 
-# Initialize the PandaMCP instance
-mcp: PandaMCP = PandaMCP("panda")
-
-
 class QuestionRequest(BaseModel):
     """
     Models the request body for the `/rag_ask` endpoint.
@@ -326,6 +446,23 @@ class QuestionRequest(BaseModel):
 
     question: str
     model: str
+
+
+
+@app.on_event("startup")
+async def startup_event():
+    """FastAPI startup event handler."""
+    global mcp
+    mcp = PandaMCP("panda", RESOURCES_DIR, VECTORSTORE_DIR)
+    #with mcp.vectorstore_lock:
+    #    mcp.build_vectorstore()
+
+    update_thread = threading.Thread(
+        target=mcp.update_vectorstore_periodically,
+        daemon=True
+    )
+    update_thread.start()
+    logger.info("FastAPI startup complete, MCP and vectorstore initialized.")
 
 
 @app.post("/rag_ask")
@@ -349,9 +486,3 @@ async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
     response = await mcp.rag_query(request.question, request.model)  # await the call
     return {"answer": response}
 
-
-if __name__ == "__main__":
-    # Run the FastAPI server
-    import uvicorn
-
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
