@@ -1,3 +1,4 @@
 /vectorstore/
-ask_panda_server_log.txt
+ask_panda_server.log
+error_analyzer.log
 

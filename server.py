@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s:%(message)s',
     handlers=[
-        logging.FileHandler("ask_panda_server_log.txt"),
+        logging.FileHandler("ask_panda_server.log"),
         logging.StreamHandler()  # Optional: keeps logs visible in console too
     ]
 )
