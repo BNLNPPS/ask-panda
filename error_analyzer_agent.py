@@ -27,6 +27,7 @@ import re
 import requests
 import sys
 
+from collections import deque
 from fastmcp import FastMCP
 from typing import Optional
 from https import download_data
@@ -130,31 +131,31 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
     _file_dictionary = {}
     json_file_name = fetch_data(pandaid, jsondata=True)
     if not json_file_name:
-        print(f"Error: Failed to fetch the JSON data for PandaID {pandaid}.")
+        logger.warning(f"Error: Failed to fetch the JSON data for PandaID {pandaid}.")
         return None, None
-    print(f"Downloaded JSON file: {json_file_name}")
+    logger.info(f"Downloaded JSON file: {json_file_name}")
     _file_dictionary["json"] = json_file_name
 
     # Verify that the current job is actually a failed job (otherwise, we don't want to download the log files)
     job_data = read_json_file(json_file_name)
     if not job_data:
-        print(f"Error: Failed to read the JSON data from {json_file_name}.")
+        logger.warning(f"Error: Failed to read the JSON data from {json_file_name}.")
         return None, None
     if not job_data['job']['jobstatus'] == 'failed':
-        print(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
+        logger.warning(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
         return None, None
-    print(f"Confirmed that job {pandaid} is in a failed state.")
+    logger.info(f"Confirmed that job {pandaid} is in a failed state.")
 
     # Fetch pilot error descriptions
     pilot_error_descriptions = read_json_file("pilot_error_codes_and_descriptions.json")
     if not pilot_error_descriptions:
-        print(f"Error: Failed to read the pilot error descriptions.")
+        logger.warning(f"Error: Failed to read the pilot error descriptions.")
         return None, None
 
     # Fetch transform error descriptions
     transform_error_descriptions = read_json_file("trf_error_codes_and_descriptions.json")
     if not transform_error_descriptions:
-        print(f"Error: Failed to read the transform error descriptions.")
+        logger.warning(f"Error: Failed to read the transform error descriptions.")
         return None, None
 
     # Extract relevant metadata from the JSON data
@@ -166,14 +167,14 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
         _metadata_dictionary["piloterrordescription"] = pilot_error_descriptions.get(str(_metadata_dictionary.get("piloterrorcode")))
         _metadata_dictionary["trferrordescription"] = transform_error_descriptions.get(str(_metadata_dictionary.get("exeerrorcode")))
     except KeyError as e:
-        print(f"Error: Missing key in JSON data: {e}")
+        logger.warning(f"Error: Missing key in JSON data: {e}")
         return None, None
 
     # Proceed to download the log files
     for log_file in log_files:
         log_file_name = fetch_data(pandaid, filename=log_file)
         if not log_file_name:
-            print(f"Error: Failed to fetch the log file {log_file}.")
+            logger.warning(f"Error: Failed to fetch the log file {log_file}.")
             return None, None
 
         # Keep track of the file names
@@ -181,9 +182,39 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
 
         # Process the log file content as needed
         # For example, you can print it or analyze it further
-        print(f"Downloaded file: {log_file}, stored as {log_file_name}")
+        logger.info(f"Downloaded file: {log_file}, stored as {log_file_name}")
 
     return _file_dictionary, _metadata_dictionary
+
+
+def extract_preceding_lines_streaming(log_file: str, error_string: str, num_lines: int = 200, output_file: str = None):
+    """
+    Extracts the preceding lines from a log file when a specific error string is found.
+
+    Note: can handle very large files efficiently by using a sliding window approach.
+
+    Args:
+        log_file (str): The path to the log file to be analyzed.
+        error_string (str): The error string to search for in the log file.
+        num_lines (int): The number of preceding lines to extract (default is 200).
+        output_file (str, optional): If provided, the extracted lines will be saved to this file.
+    """
+    buffer = deque(maxlen=num_lines)
+
+    with open(log_file, 'r', encoding='utf-8') as file:
+        for line in file:
+            if error_string in line:
+                # Match found; output the preceding lines
+                if output_file:
+                    with open(output_file, 'w') as out_file:
+                        out_file.writelines(buffer)
+                    logger.info(f"Extracted lines saved to: {output_file}")
+                else:
+                    logger.warning("".join(buffer))
+                return
+            buffer.append(line)
+
+    logger.warning("Error string not found in the log file.")
 
 
 def main():
@@ -213,9 +244,9 @@ def main():
     # Fetch the files from PanDA
     file_dictionary, metadata_dictionary = fetch_all_data(args.pandaid, log_files)
     if not file_dictionary:
-        print(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
+        logger.warning(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
         sys.exit(1)
-    print(metadata_dictionary)
+    logger.info(metadata_dictionary)
     # Extract the relevant parts for error analysis
 
     #answer = ask(question, model)
