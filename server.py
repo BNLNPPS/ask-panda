@@ -65,8 +65,14 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from typing import Dict, Optional, Union  # For type hinting
 
+from vectorstore_manager import VectorStoreManager
+
+# FastAPI instance
 app: FastAPI = FastAPI()
-mcp = None  # declare globally
+
+# Declare global references (initialized later)
+vectorstore_manager = None
+mcp = None
 
 # Set up API keys from environment variables
 ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
@@ -89,10 +95,6 @@ if GEMINI_API_KEY:
 #    allow_dangerous_deserialization=True,  # Safe if it's your own data
 #)
 
-VECTORSTORE_DIR = Path("vectorstore")
-RESOURCES_DIR = Path("resources")
-
-
 class PandaMCP(FastMCP):
     """
     Panda Multi-Cloud Platform (MCP) for RAG queries.
@@ -103,118 +105,27 @@ class PandaMCP(FastMCP):
     passed to the FastMCP base class.
     """
 
-    def __init__(self, namespace: str, resources_dir: Path, vectorstore_dir: Path):
+    def __init__(
+            self,
+            namespace: str,
+            resources_dir: Path,
+            vectorstore_dir: Path,
+            vectorstore_manager: VectorStoreManager
+    ):
         """
-        Initialize the PandaMCP instance with the given namespace, resources directory,
+        Initializes the PandaMCP class.
 
         Args:
-            str: namespace: The namespace for the PandaMCP instance.
-            Path: resources_dir: Path to the directory containing resources.
-            Path: vectorstore_dir: Path to the directory where the vector store is saved.
+            namespace (str): Namespace identifier for MCP.
+            resources_dir (Path): Directory containing resource documents.
+            vectorstore_dir (Path): Directory for ChromaDB storage.
+            vectorstore_manager: Instance managing vectorstore operations.
         """
         super().__init__(namespace)
 
-        # Define type for embeddings before assignment
-        embeddings: Union[OpenAIEmbeddings, HuggingFaceEmbeddings]
-
-        # Load vector store once at startup (same model used during vectorstore creation)
-        if False:  # This block is currently not executed, kept for potential future use
-            embeddings = OpenAIEmbeddings()
-        else:
-            model_name: str = "all-MiniLM-L6-v2"
-            embeddings = HuggingFaceEmbeddings(model_name=model_name)
-
         self.resources_dir = resources_dir
         self.vectorstore_dir = vectorstore_dir
-        self.embeddings = embeddings
-        self.vectorstore_lock = threading.Lock()
-        self.known_files = set()
-
-        # Initial vectorstore build
-        with self.vectorstore_lock:
-            self.vectorstore = self.build_vectorstore()
-
-    def load_documents(self) -> list:
-        """
-        Load text documents from the directory.
-
-        This method scans the `resources_dir` for `.txt` files, loads them using
-        `TextLoader`, and returns a list of documents.
-
-        Returns:
-            list: A list of documents loaded from the text files in the
-                  `resources_dir`. Each document is represented as a dictionary
-                  with content and metadata.
-        """
-        documents = []
-        for file_path in self.resources_dir.glob("*.txt"):
-            loader = TextLoader(str(file_path))
-            documents.extend(loader.load())
-
-        return documents
-
-    def build_vectorstore(self) -> FAISS:
-        """
-        Build the FAISS vectorstore.
-
-        Returns:
-            FAISS: The FAISS vectorstore containing the document chunks.
-        """
-        documents = self.load_documents()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
-        chunks = splitter.split_documents(documents)
-        vectorstore = FAISS.from_documents(chunks, self.embeddings)
-        vectorstore.save_local(str(self.vectorstore_dir))
-        self.known_files = {file: file.stat().st_mtime for file in self.resources_dir.glob("*.txt")}
-        logger.info(f"Vectorstore built with {len(chunks)} chunks from {len(documents)} documents.")
-
-        return vectorstore
-
-    def update_vectorstore_periodically(self, interval_seconds: int = 60):
-        """
-        Periodically check for updates in the vectorstore and rebuild it if necessary.
-
-        Args:
-            interval_seconds:
-
-        Returns:
-
-        """
-        logger.info("Background vectorstore updater thread started.")
-        while True:
-            try:
-                time.sleep(interval_seconds)
-                updated = False
-
-                # Explicitly create a dict
-                current_files = {
-                    file: file.stat().st_mtime for file in self.resources_dir.glob("*.txt")
-                }
-
-                # Check for added or removed files
-                if set(current_files.keys()) != set(self.known_files.keys()):
-                    updated = True
-                    logger.info("Detected new or removed documents.")
-
-                # Check for modified files explicitly and safely
-                else:
-                    for file, mtime in current_files.items():
-                        old_mtime = self.known_files.get(file)
-                        if old_mtime is None or old_mtime != mtime:
-                            updated = True
-                            logger.info(f"Detected modified document: {file.name}")
-                            break
-
-                if updated:
-                    logger.info("Updating vectorstore...")
-                    with self.vectorstore_lock:
-                        self.build_vectorstore()
-                    logger.info("Vectorstore updated successfully.")
-
-                self.known_files = current_files
-
-            except Exception as e:
-                logger.warning(f"An error occurred during vectorstore update: {e}")
+        self.vectorstore_manager = vectorstore_manager
 
     async def _call_anthropic(self, prompt: str) -> str:
         """
@@ -411,16 +322,13 @@ class PandaMCP(FastMCP):
         Raises:
             ValueError: If an unsupported model identifier is provided.
         """
-        with self.vectorstore_lock:
-            docs = self.vectorstore.similarity_search(question, k=5)
+        context_docs = vectorstore_manager.query(question, k=5)
+        context = "\n\n".join(context_docs)
 
-        context = "\n\n".join(doc.page_content for doc in docs)
-        prompt = (  # noqa: E501
-            "Answer based on the following context:\n"
-            f"{context}\n\n"
-            f"Question: {question}"
-        )
+        # Construct prompt explicitly
+        prompt = f"Answer based on the following context:\n{context}\n\nQuestion: {question}"
 
+        # Call appropriate LLM based on provided model
         if model == "anthropic":
             return await self._call_anthropic(prompt)
         elif model == "openai":
@@ -430,9 +338,7 @@ class PandaMCP(FastMCP):
         elif model == "gemini":
             return await self._call_gemini(prompt)
         else:
-            raise ValueError(  # noqa: E501
-                f"Unsupported model '{model}'. Ensure this is the final else."
-            )
+            return f"Invalid model specified: '{model}'."
 
 
 class QuestionRequest(BaseModel):
@@ -452,17 +358,18 @@ class QuestionRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """FastAPI startup event handler."""
-    global mcp
-    mcp = PandaMCP("panda", RESOURCES_DIR, VECTORSTORE_DIR)
-    #with mcp.vectorstore_lock:
-    #    mcp.build_vectorstore()
+    global vectorstore_manager, mcp
 
-    update_thread = threading.Thread(
-        target=mcp.update_vectorstore_periodically,
-        daemon=True
-    )
-    update_thread.start()
-    logger.info("FastAPI startup complete, MCP and vectorstore initialized.")
+    resources_dir = Path("resources")
+    chroma_dir = Path("chromadb")
+
+    vectorstore_manager = VectorStoreManager(resources_dir, chroma_dir)
+    vectorstore_manager.start_periodic_updates()
+
+    # Initialize MCP after vectorstore_manager
+    mcp = PandaMCP("panda", resources_dir, chroma_dir, vectorstore_manager)
+
+    logger.info("FastAPI startup complete. Vector store and MCP initialized successfully.")
 
 
 @app.post("/rag_ask")
@@ -483,6 +390,10 @@ async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
         Dict[str, str]: A dictionary containing the generated answer,
                         structured as `{"answer": "..."}`.
     """
-    response = await mcp.rag_query(request.question, request.model)  # await the call
-    return {"answer": response}
+    logger.info(f"Received query: '{request.question}' using model: '{request.model}'")
+
+    response_text = await mcp.rag_query(request.question, request.model.lower())
+
+    logger.info(f"Query processed using model '{request.model.lower()}'.")
+    return {"answer": response_text}
 
