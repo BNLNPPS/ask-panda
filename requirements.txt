@@ -10,3 +10,4 @@ langchain-huggingface
 sentence-transformers
 faiss-cpu
 requests
+chromadb
