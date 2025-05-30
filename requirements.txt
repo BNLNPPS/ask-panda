@@ -11,3 +11,4 @@ sentence-transformers
 faiss-cpu
 requests
 chromadb
+langchain-chroma

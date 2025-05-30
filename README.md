@@ -1,5 +1,5 @@
 # Ask PanDA
-This project contains MCP powered tools for 1) an AI chatbot for static (and soon, possibly, dynamic)
+This project contains MCP powered tools for 1) an AI chatbot for static
 conversations and 2) an error analysis agent for PanDA jobs. The goal is to provide a simple and efficient 
 way to interact with various AI models and analyze errors in PanDA jobs.
 
@@ -45,7 +45,7 @@ export LLAMA_API_URL='http://localhost:11434/api/generate'  # For Ollama Llama3 
 ```
 uvicorn server:app --reload
 ```
-When the server is started, it will create a vector store for the static conversation based on documents in the
+When the server is started, it will create a vector store (Chroma DB) for the static conversation based on documents in the
 resources directory. The server will monitor the resources directory for changes (once per minute) and will update the vector store when necessary.
 New documents can be added to the resources directory, and the server will automatically update the vector store.
 
@@ -84,7 +84,7 @@ This is a limitation of the current implementation and is not a reflection of th
 
 # Vector store
 
-Note that the vector store is created and maintained by the server. The contents of the vector store are stored in the `vectorstore` directory
+Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
 and can be inspected using the `vectorstore_inspector.py` script.
 
 ```
