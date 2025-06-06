@@ -23,6 +23,7 @@
 import argparse
 import json
 import logging
+import os
 import re
 import requests
 import sys
@@ -115,6 +116,24 @@ def read_json_file(file_path: str) -> Optional[dict]:
     return data
 
 
+def read_file(file_path: str) -> Optional[str]:
+    """
+    Reads a text file and returns its contents as a string.
+
+    Args:
+        file_path (str): The path to the text file.
+
+    Returns:
+        str or None: The contents of the text file as a string, or None if the file cannot be read.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError as e:
+        logger.warning(f"Failed to read file {file_path}: {e}")
+        return None
+
+
 def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or None]:
     """
     Fetches all files and metadata from PanDA for a given job ID.
@@ -187,7 +206,7 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[dict or None, dict or
     return _file_dictionary, _metadata_dictionary
 
 
-def extract_preceding_lines_streaming(log_file: str, error_string: str, num_lines: int = 200, output_file: str = None):
+def extract_preceding_lines_streaming(log_file: str, error_string: str, num_lines: int = 20, output_file: str = None):
     """
     Extracts the preceding lines from a log file when a specific error string is found.
 
@@ -196,13 +215,14 @@ def extract_preceding_lines_streaming(log_file: str, error_string: str, num_line
     Args:
         log_file (str): The path to the log file to be analyzed.
         error_string (str): The error string to search for in the log file.
-        num_lines (int): The number of preceding lines to extract (default is 200).
+        num_lines (int): The number of preceding lines to extract (default is 20).
         output_file (str, optional): If provided, the extracted lines will be saved to this file.
     """
     buffer = deque(maxlen=num_lines)
 
     with open(log_file, 'r', encoding='utf-8') as file:
         for line in file:
+            buffer.append(line)
             if error_string in line:
                 # Match found; output the preceding lines
                 if output_file:
@@ -212,9 +232,70 @@ def extract_preceding_lines_streaming(log_file: str, error_string: str, num_line
                 else:
                     logger.warning("".join(buffer))
                 return
-            buffer.append(line)
 
     logger.warning("Error string not found in the log file.")
+
+
+def get_relevant_error_string(metadata_dictionary: dict) -> str:
+    """
+    Construct a relevant error string based on the metadata dictionary.
+
+    This functino will select a proper error string to use when extracting the relevant context from the log file.
+
+    Args:
+        metadata_dictionary (dict): A dictionary containing metadata about the job.
+
+    Returns:
+        str: A formatted error string that includes pilot and transform error codes and descriptions.
+    """
+    depth = 50  # Number of characters to use from the error description
+
+    pilot_error_code = metadata_dictionary.get("piloterrorcode", 1008)  # Default to 1008 if not found
+    pilot_error_diag = metadata_dictionary.get("piloterrordiag", "CRITICIAL")
+    # exe_error_code = metadata_dictionary.get("exeerrorcode", "Unknown")
+    # exe_error_diag = metadata_dictionary.get("exeerrordiag", "No description available.")
+
+    # This dictionary can be used to find relevant error strings that might appear in the log based on the error codes.
+    error_string_dictionary = {
+        1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
+    }
+
+    # If the current error code is not in the error string dictionary, then we will use a part of the pilot error description as the error string.
+    if pilot_error_code not in error_string_dictionary:
+        error_string_dictionary[pilot_error_code] = pilot_error_diag[:depth]  # Use the first 50 characters of the description
+
+    return error_string_dictionary.get(pilot_error_code, "No relevant error string found.")
+
+
+def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
+    """
+    Construct a question to ask the LLM based on the extracted lines and metadata.
+
+    Args:
+        output_file:
+        metadata_dictionary:
+
+    Returns:
+
+    """
+    log_extracts = read_file(output_file)
+    if not log_extracts:
+        logger.warning(f"Error: Failed to read the extracted log file {output_file}.")
+        return ""
+
+    piloterrordiag = metadata_dictionary.get("piloterrordiag", "No pilot error description available.")
+
+    question = "You are an expert on distributed analysis. Below is a log extract from a failed PanDA job that was run on a linux worker node.\n\n"
+    question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
+    preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
+    if preliminary_diagnosis:
+        question += f"A preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
+    question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
+    question += (
+        "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. Separate your answer into the following sections: "
+        "1) Explanations and suggestions for non-expert users, and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
+
+    return question
 
 
 def main():
@@ -225,7 +306,7 @@ def main():
     a question and a model.
 
     Raises:
-        SystemExit: If the number of arguments is not equal to 3.
+        SystemExit: If the number of arguments is not equal to 4.
     """
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
@@ -236,6 +317,8 @@ def main():
                         help='PandaID (integer)')
     parser.add_argument('--model', type=str, required=True,
                         help='Model to use (e.g., openai, anthropic, etc.)')
+    parser.add_argument('--mode', type=str, required=True,
+                        help='Mode to use (ML or contextual)')
     args = parser.parse_args()
 
     # Split the log files into a list
@@ -247,7 +330,41 @@ def main():
         logger.warning(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
         sys.exit(1)
     logger.info(metadata_dictionary)
+
     # Extract the relevant parts for error analysis
+    if args.mode.lower() == 'contextual':
+        # Use contextual mode to analyze the log files
+        # Only analyze the pilot log for now
+        log_file = 'pilotlog.txt'
+        if log_file not in file_dictionary:
+            logger.warning(f"Error: Log file {log_file} not found in the fetched files.")
+            sys.exit(1)
+        output_file = f"{args.pandaid}-{log_file}_extracted.txt"
+        log_file_path = file_dictionary.get(log_file)
+        if log_file_path:
+            error_string = get_relevant_error_string(metadata_dictionary)
+            extract_preceding_lines_streaming(log_file_path, error_string, output_file=output_file)
+
+            # if the output file is not None, then we can ask the question
+            if os.path.exists(output_file):
+                # Formulate the question based on the extracted lines and metadata
+                question = formulate_question(output_file, metadata_dictionary)
+                if not question:
+                    logger.warning("No question could be generated from the extracted lines.")
+                    sys.exit(1)
+                logger.info(f"Asking question: \n\n{question}")
+
+                # Ask the question to the LLM
+                answer = ask(question, args.model)
+                print(f"Answer from {args.model.capitalize()} (via RAG):\n{answer}")
+            else:
+                logger.warning("No output file specified for the extracted lines.")
+    elif args.mode.lower() == 'ml':
+        # Use ML mode to analyze the log files
+        raise NotImplementedError("ML mode is not implemented yet.")
+    else:
+        logger.error(f"Invalid mode specified: {args.mode}. Use 'ML' or 'contextual'.")
+        sys.exit(1)
 
     #answer = ask(question, model)
     #print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
