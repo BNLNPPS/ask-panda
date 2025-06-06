@@ -69,7 +69,7 @@ python agent.py "Please list all of the PanDA pilot error codes" gemini  (demons
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python error_analyzer_agent.py [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL
+python error_analyzer_agent.py [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
 ```
 **Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
 the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
@@ -81,6 +81,12 @@ IN DEVELOPMENT: The error analysis agent is not yet fully functional. It will re
 not be able to answer all of the questions. The last example can be used as a benchmark test.
 The agent will return a list of the error codes, but it will not be able to provide the full context of each error code. 
 This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
+
+For now, use --log-files pilotlog.txt, --model openai or gemini, and --mode contextual. E.g. analyze a job that failed with pilot error code 1150, "Looping job killed by pilot":
+
+```
+python error_analyzer_agent.py --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
+```
 
 # Vector store
 
