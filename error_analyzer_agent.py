@@ -269,6 +269,7 @@ def get_relevant_error_string(metadata_dictionary: dict) -> str:
 
     # This dictionary can be used to find relevant error strings that might appear in the log based on the error codes.
     error_string_dictionary = {
+        1099: "Failed to stage-in file",
         1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
     }
 
@@ -313,7 +314,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
-        question += f"A preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
+        question += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
 
     question += (
         "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. Separate your answer into the following sections: "
