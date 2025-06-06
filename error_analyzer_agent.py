@@ -30,6 +30,7 @@ import sys
 
 from collections import deque
 from fastmcp import FastMCP
+from time import sleep
 from typing import Optional
 from https import download_data
 
@@ -272,6 +273,7 @@ def get_relevant_error_string(metadata_dictionary: dict) -> str:
     error_string_dictionary = {
         1099: "Failed to stage-in file",
         1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
+        1201: "caught signal: SIGTERM",
     }
 
     # If the current error code is not in the error string dictionary, then we will use a part of the pilot error description as the error string.
@@ -338,7 +340,7 @@ def main():
     ec = check_server_health()
     if ec == errorcodes.EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
-        os.sleep(5)  # Wait for a while before retrying
+        sleep(5)  # Wait for a while before retrying
         ec = check_server_health()
         if ec:
             logger.error("MCP server is not healthy after retry. Exiting.")

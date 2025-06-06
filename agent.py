@@ -25,6 +25,7 @@ import os  # Added for environment variable access
 import requests
 import sys
 from json import JSONDecodeError  # Added for specific exception handling
+from time import sleep
 # from fastmcp import FastMCP # Removed unused import
 
 import errorcodes
@@ -105,7 +106,7 @@ def main() -> None:
     ec = check_server_health()
     if ec == errorcodes.EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
-        os.sleep(5)  # Wait for a while before retrying
+        sleep(5)  # Wait for a while before retrying
         ec = check_server_health()
         if ec:
             logger.error("MCP server is not healthy after retry. Exiting.")
