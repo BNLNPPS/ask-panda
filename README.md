@@ -82,13 +82,13 @@ This is a limitation of the current implementation and is not a reflection of th
 
 **Note**: For now, use --log-files pilotlog.txt, --model openai or gemini, and --mode contextual. E.g. analyze a job that failed with pilot error code 1150, "Looping job killed by pilot":
 
+```
+python error_analyzer_agent.py --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
+```
+
 The following pilot error codes have been verified to work with the error analysis agent:
 ```
 1099, 1137, 1150, 1152, 1201, 1213, 1236, 1305, 1324, 1354, 1361, 1368.
-```
-
-```
-python error_analyzer_agent.py --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
 ```
 
 # Vector store
