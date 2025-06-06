@@ -42,6 +42,11 @@ import urllib.parse
 from urllib.parse import parse_qs
 from typing import IO
 
+EC_OK = 0
+EC_NOTFOUND = 1
+EC_UNKNOWN_ERROR = 2
+
+
 def open_file(filename: str, mode: str) -> IO:
     """
     Open and return a file pointer for the given mode.
@@ -276,7 +281,7 @@ def hide_token(headers: dict) -> dict:
     return headers
 
 
-def download_data(url: str) -> str or None:
+def download_data(url: str) -> tuple[int, str]:
     """
     Download a log file or JSON from the given URL and save it to a temporary file.
 
@@ -285,17 +290,24 @@ def download_data(url: str) -> str or None:
 
     Returns:
         file name (str or None): The filename of the downloaded file, or None in case of failure.
+        exit code (int): 0 if successful, non-zero if an error occurred.
     """
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP error occurred: {e}")
+        if "Not Found for url" in str(e):
+            return EC_NOTFOUND, None
+        else:
+            return EC_UNKNOWN_ERROR, None
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp_file:
         for chunk in response.iter_content(chunk_size=8192):
             tmp_file.write(chunk)
 
-        return tmp_file.name  # Return the file path
+        return EC_OK, tmp_file.name  # Return the file path
 
-    return None
+    return EC_UNKNOWN_ERROR, None
 
 
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
