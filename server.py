@@ -52,6 +52,8 @@ import requests  # For checking MCP server health
 import threading
 import time
 
+import errorcodes
+
 # import asyncio  # No longer explicitly needed after httpx integration
 from pathlib import Path
 from fastapi import FastAPI
@@ -87,11 +89,6 @@ LLAMA_API_URL: Optional[str] = os.getenv(
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
 HEALTH_ENDPOINT = f"{MCP_SERVER_URL}/health"
 
-# Error codes
-EC_OK = 0
-EC_SERVERNOTRUNNING = 1
-EC_CONNECTIONPROBLEM = 2
-
 # Configure SDKs - these operations might implicitly use the API keys above
 # or might be for libraries that don't require explicit key passing at every call.
 if OPENAI_API_KEY:
@@ -123,14 +120,19 @@ def check_server_health() -> int:
         response.raise_for_status()
         if response.json().get("status") == "ok":
             logger.info("MCP server is running.")
-            return EC_OK
+            return errorcodes.EC_OK
         else:
             logger.warning("MCP server is not running.")
-            return EC_SERVERNOTRUNNING
+            return errorcodes.EC_SERVERNOTRUNNING
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout):
+        logger.warning(f"Timeout while trying to connect to MCP server at {MCP_SERVER_URL}.")
+        return errorcodes.EC_TIMEOUT
     except requests.RequestException as e:
         logger.warning(f"Cannot connect to MCP server at {MCP_SERVER_URL}: {e}")
-        return EC_CONNECTIONPROBLEM
-
+        return errorcodes.EC_CONNECTIONPROBLEM
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while checking MCP server health: {e}")
+        return errorcodes.EC_UNKNOWN_ERROR
 
 class PandaMCP(FastMCP):
     """

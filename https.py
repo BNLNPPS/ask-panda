@@ -42,9 +42,7 @@ import urllib.parse
 from urllib.parse import parse_qs
 from typing import IO
 
-EC_OK = 0
-EC_NOTFOUND = 1
-EC_UNKNOWN_ERROR = 2
+import errorcodes
 
 
 def open_file(filename: str, mode: str) -> IO:
@@ -298,16 +296,16 @@ def download_data(url: str) -> tuple[int, str]:
     except requests.exceptions.HTTPError as e:
         print(f"HTTP error occurred: {e}")
         if "Not Found for url" in str(e):
-            return EC_NOTFOUND, None
+            return errorcodes.EC_NOTFOUND, None
         else:
-            return EC_UNKNOWN_ERROR, None
+            return errorcodes.EC_UNKNOWN_ERROR, None
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp_file:
         for chunk in response.iter_content(chunk_size=8192):
             tmp_file.write(chunk)
 
-        return EC_OK, tmp_file.name  # Return the file path
+        return errorcodes.EC_OK, tmp_file.name  # Return the file path
 
-    return EC_UNKNOWN_ERROR, None
+    return errorcodes.EC_UNKNOWN_ERROR, None
 
 
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:

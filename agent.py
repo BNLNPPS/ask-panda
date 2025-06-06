@@ -27,6 +27,7 @@ import sys
 from json import JSONDecodeError  # Added for specific exception handling
 # from fastmcp import FastMCP # Removed unused import
 
+import errorcodes
 from server import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
@@ -102,7 +103,14 @@ def main() -> None:
     """
     # Check server health before proceeding
     ec = check_server_health()
-    if ec:
+    if ec == errorcodes.EC_TIMEOUT:
+        logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
+        os.sleep(5)  # Wait for a while before retrying
+        ec = check_server_health()
+        if ec:
+            logger.error("MCP server is not healthy after retry. Exiting.")
+            sys.exit(1)
+    elif ec:
         logger.error("MCP server is not healthy. Exiting.")
         sys.exit(1)
 
