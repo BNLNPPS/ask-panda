@@ -20,13 +20,26 @@
 
 """This script is a simple command-line agent that interacts with a RAG (Retrieval-Augmented Generation) server."""
 
+import logging
 import os  # Added for environment variable access
 import requests
 import sys
 from json import JSONDecodeError  # Added for specific exception handling
 # from fastmcp import FastMCP # Removed unused import
 
+from server import MCP_SERVER_URL, check_server_health
+
 # mcp = FastMCP("panda") # Removed unused instance
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler("agent.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 
 def ask(question: str, model: str) -> str:
     """
@@ -46,7 +59,7 @@ def ask(question: str, model: str) -> str:
              request, or if the server responds with an error, a string
              prefixed with "Error:" is returned detailing the issue.
     """
-    server_url = os.getenv("RAG_SERVER_URL", "http://localhost:8000/rag_ask")
+    server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
     try:
         response = requests.post(server_url, json={"question": question, "model": model}, timeout=30)
         if response.ok:
@@ -87,17 +100,23 @@ def main() -> None:
         SystemExit: If the number of command-line arguments is incorrect, or
                     if an error occurs during the RAG server request.
     """
+    # Check server health before proceeding
+    ec = check_server_health()
+    if ec:
+        logger.error("MCP server is not healthy. Exiting.")
+        sys.exit(1)
+
     if len(sys.argv) != 3:
-        print("Usage: python agent.py \"<question>\" <model>")
+        logger.info("Usage: python agent.py \"<question>\" <model>")
         sys.exit(1)
 
     question, model = sys.argv[1], sys.argv[2]
     answer = ask(question, model)
     if answer.startswith("Error:"):
-        print(answer, file=sys.stderr)
+        logger.info(answer, file=sys.stderr)
         sys.exit(1)
     else:
-        print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
+        logger.info(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
 
 if __name__ == "__main__":
     main()
