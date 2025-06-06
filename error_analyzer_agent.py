@@ -334,7 +334,7 @@ def main():
     """
     # Check server health before proceeding
     ec = check_server_health()
-    if ec != EC_OK:
+    if ec:
         logger.error("MCP server is not healthy. Exiting.")
         sys.exit(1)
 
