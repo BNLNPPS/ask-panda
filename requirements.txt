@@ -12,3 +12,4 @@ faiss-cpu
 requests
 chromadb
 langchain-chroma
+transformers
