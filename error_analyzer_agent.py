@@ -33,6 +33,8 @@ from fastmcp import FastMCP
 from typing import Optional
 from https import download_data, EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
 
+from server import MCP_SERVER_URL, check_server_health
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
@@ -57,7 +59,7 @@ def ask(question: str, model: str) -> str:
     Returns:
         str: The answer returned by the RAG server.
     """
-    server_url = "http://localhost:8000/rag_ask"
+    server_url = f"{MCP_SERVER_URL}/rag_ask"
     response = requests.post(server_url, json={"question": question, "model": model})
     if response.ok:
         return response.json()["answer"]
@@ -227,6 +229,7 @@ def extract_preceding_lines_streaming(log_file: str, error_string: str, num_line
         num_lines (int): The number of preceding lines to extract (default is 20).
         output_file (str, optional): If provided, the extracted lines will be saved to this file.
     """
+    logger.info(f"Searching for error string '{error_string}' in log file '{log_file}'.")
     buffer = deque(maxlen=num_lines)
 
     with open(log_file, 'r', encoding='utf-8') as file:
@@ -329,6 +332,12 @@ def main():
     Raises:
         SystemExit: If the number of arguments is not equal to 4.
     """
+    # Check server health before proceeding
+    ec = check_server_health()
+    if ec != EC_OK:
+        logger.error("MCP server is not healthy. Exiting.")
+        sys.exit(1)
+
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
@@ -367,7 +376,7 @@ def main():
         if log_file_path:
             # Create an output file for the log extracts
             error_string = get_relevant_error_string(metadata_dictionary)
-            extract_preceding_lines_streaming(log_file_path, error_string, output_file=output_file)
+            extract_preceding_lines_streaming(log_file_path, error_string[:40], output_file=output_file)
         if not os.path.exists(output_file):
             output_file = None
 

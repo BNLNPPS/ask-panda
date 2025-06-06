@@ -48,6 +48,7 @@ import google.generativeai as genai
 import httpx  # Import httpx
 import openai
 import os
+import requests  # For checking MCP server health
 import threading
 import time
 
@@ -82,6 +83,15 @@ LLAMA_API_URL: Optional[str] = os.getenv(
     "LLAMA_API_URL", "http://localhost:11434/api/generate"
 )
 
+# MCP server IP and env vars
+MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
+HEALTH_ENDPOINT = f"{MCP_SERVER_URL}/health"
+
+# Error codes
+EC_OK = 0
+EC_SERVERNOTRUNNING = 1
+EC_CONNECTIONPROBLEM = 2
+
 # Configure SDKs - these operations might implicitly use the API keys above
 # or might be for libraries that don't require explicit key passing at every call.
 if OPENAI_API_KEY:
@@ -94,6 +104,33 @@ if GEMINI_API_KEY:
 #    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
 #    allow_dangerous_deserialization=True,  # Safe if it's your own data
 #)
+
+
+def check_server_health() -> int:
+    """
+    Check the health of the MCP server.
+    This function attempts to connect to the MCP server's health endpoint
+    and checks if it returns a status of "ok".
+    If the server is reachable and healthy, it returns EC_OK.
+    If the server is not running or there is a connection problem,
+    it returns EC_SERVERNOTRUNNING or EC_CONNECTIONPROBLEM respectively.
+
+    Returns:
+        Server error code (int): Exit code indicating the health status of the MCP server.
+    """
+    try:
+        response = requests.get(HEALTH_ENDPOINT, timeout=5)
+        response.raise_for_status()
+        if response.json().get("status") == "ok":
+            logger.info("MCP server is running.")
+            return EC_OK
+        else:
+            logger.warning("MCP server is not running.")
+            return EC_SERVERNOTRUNNING
+    except requests.RequestException as e:
+        logger.warning(f"Cannot connect to MCP server at {MCP_SERVER_URL}: {e}")
+        return EC_CONNECTIONPROBLEM
+
 
 class PandaMCP(FastMCP):
     """
@@ -370,6 +407,12 @@ async def startup_event():
     mcp = PandaMCP("panda", resources_dir, chroma_dir, vectorstore_manager)
 
     logger.info("FastAPI startup complete. Vector store and MCP initialized successfully.")
+
+
+@app.get("/health")
+async def health_check() -> Dict[str, str]:
+    """Simple health-check endpoint."""
+    return {"status": "ok"}
 
 
 @app.post("/rag_ask")
