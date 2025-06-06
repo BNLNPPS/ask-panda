@@ -273,7 +273,8 @@ def get_relevant_error_string(metadata_dictionary: dict) -> str:
     error_string_dictionary = {
         1099: "Failed to stage-in file",
         1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
-        1201: "caught signal: SIGTERM",
+        1201: "caught signal: SIGTERM",  # need to add all other kill signals here
+        1324: "Service not available at the moment",
     }
 
     # If the current error code is not in the error string dictionary, then we will use a part of the pilot error description as the error string.
