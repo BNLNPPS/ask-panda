@@ -314,7 +314,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
         question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
     else:
-        question += f"Analyze the error: \"{piloterrordiag}\".\n\n"
+        question += f"The log could not be downloaded, please let the user or export know that the analysis will be based on known explanations for this error type. Analyze the error: \"{piloterrordiag}\".\n\n"
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
@@ -341,7 +341,7 @@ def main():
     ec = check_server_health()
     if ec == errorcodes.EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
-        sleep(5)  # Wait for a while before retrying
+        sleep(10)  # Wait for a while before retrying
         ec = check_server_health()
         if ec:
             logger.error("MCP server is not healthy after retry. Exiting.")

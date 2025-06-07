@@ -106,7 +106,7 @@ def main() -> None:
     ec = check_server_health()
     if ec == errorcodes.EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
-        sleep(5)  # Wait for a while before retrying
+        sleep(10)  # Wait for a while before retrying
         ec = check_server_health()
         if ec:
             logger.error("MCP server is not healthy after retry. Exiting.")
