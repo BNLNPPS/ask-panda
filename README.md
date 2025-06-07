@@ -88,7 +88,7 @@ python error_analyzer_agent.py --pandaid 6681623402 --log-files pilotlog.txt --m
 
 The following pilot error codes have been verified to work with the error analysis agent:
 ```
-1099, 1137, 1150, 1152, 1201, 1213, 1236, 1305, 1324, 1354, 1361, 1368.
+1099, 1104, 1137, 1150, 1152, 1201, 1213, 1236, 1305, 1322, 1324, 1354, 1361, 1368.
 ```
 
 # Vector store
