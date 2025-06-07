@@ -219,25 +219,26 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, di
     return errorcodes.EC_OK, _file_dictionary, _metadata_dictionary
 
 
-def extract_preceding_lines_streaming(log_file: str, error_string: str, num_lines: int = 20, output_file: str = None):
+def extract_preceding_lines_streaming(log_file: str, error_pattern: str, num_lines: int = 20, output_file: str = None):
     """
-    Extracts the preceding lines from a log file when a specific error string is found.
+    Extracts the preceding lines from a log file when a specific error pattern is found.
 
-    Note: can handle very large files efficiently by using a sliding window approach.
+    Note: Can handle very large files efficiently by using a sliding window approach.
 
     Args:
         log_file (str): The path to the log file to be analyzed.
-        error_string (str): The error string to search for in the log file.
+        error_pattern (str): The regular expression pattern to search for in the log file.
         num_lines (int): The number of preceding lines to extract (default is 20).
         output_file (str, optional): If provided, the extracted lines will be saved to this file.
     """
-    logger.info(f"Searching for error string '{error_string}' in log file '{log_file}'.")
+    logger.info(f"Searching for error pattern '{error_pattern}' in log file '{log_file}'.")
     buffer = deque(maxlen=num_lines)
+    pattern = re.compile(error_pattern)
 
     with open(log_file, 'r', encoding='utf-8') as file:
         for line in file:
             buffer.append(line)
-            if error_string in line:
+            if pattern.search(line):
                 # Match found; output the preceding lines
                 if output_file:
                     with open(output_file, 'w') as out_file:
@@ -247,14 +248,12 @@ def extract_preceding_lines_streaming(log_file: str, error_string: str, num_line
                     logger.warning("".join(buffer))
                 return
 
-    logger.warning("Error string not found in the log file.")
-
 
 def get_relevant_error_string(metadata_dictionary: dict) -> str:
     """
     Construct a relevant error string based on the metadata dictionary.
 
-    This functino will select a proper error string to use when extracting the relevant context from the log file.
+    This function will select a proper error string to use when extracting the relevant context from the log file.
 
     Args:
         metadata_dictionary (dict): A dictionary containing metadata about the job.
@@ -272,6 +271,7 @@ def get_relevant_error_string(metadata_dictionary: dict) -> str:
     # This dictionary can be used to find relevant error strings that might appear in the log based on the error codes.
     error_string_dictionary = {
         1099: "Failed to stage-in file",
+        1104: r"work directory \(.*?\) is too large",  # the regular expression will be ignored
         1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
         1201: "caught signal: SIGTERM",  # need to add all other kill signals here
         1324: "Service not available at the moment",
