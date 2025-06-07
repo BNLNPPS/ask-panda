@@ -274,6 +274,7 @@ def get_relevant_error_string(metadata_dictionary: dict) -> str:
         1104: r"work directory \(.*?\) is too large",  # the regular expression will be ignored
         1150: "pilot has decided to kill looping job",  # i.e. this string will appear in the log when the pilot has decided that the job is looping
         1201: "caught signal: SIGTERM",  # need to add all other kill signals here
+        1235: "job has exceeded the memory limit",
         1324: "Service not available at the moment",
     }
 
@@ -314,7 +315,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
         question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
     else:
-        question += f"The log could not be downloaded, please let the user or export know that the analysis will be based on known explanations for this error type. Analyze the error: \"{piloterrordiag}\".\n\n"
+        question += f"Analyze the error: \"{piloterrordiag}\".\n\n"
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
@@ -322,7 +323,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
 
     question += (
         "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. Separate your answer into the following sections: "
-        "1) Explanations and suggestions for non-expert users, and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
+        "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't oversimplify explanations), and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
 
     return question
 
@@ -390,6 +391,7 @@ def main():
             error_string = get_relevant_error_string(metadata_dictionary)
             extract_preceding_lines_streaming(log_file_path, error_string[:40], output_file=output_file)
         if not os.path.exists(output_file):
+            logger.info("The error string was not found in the log file, so no output file was created.")
             output_file = None
 
         # Formulate the question based on the extracted lines and metadata
