@@ -94,10 +94,10 @@ The following pilot error codes have been verified to work with the error analys
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
-and can be inspected using the `vectorstore_inspector.py` script.
+and can be inspected using the `vectorstore_manager.py` script.
 
 ```
-python vectorstore_inspector.py --dump
+python vectorstore_manager.py --dump
 ```
 
 If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option, 
