@@ -39,7 +39,7 @@ export GEMINI_API_KEY='your_gemini_api_key'
 export LLAMA_API_URL='http://localhost:11434/api/generate'  # For Ollama Llama3 model
 ```
 
-# MCP server and agent
+# MCP server and chatbot agent ("DocumentQueryAgent")
 
 1. Start the Server:
 ```
@@ -63,7 +63,7 @@ python agent.py "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not pr
 python agent.py "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
 ```
 
-# Error Analysis Agent
+# Error Analysis Agent ("LogAnalysisAgent")
 
 1. Start the Server as described above.
 
