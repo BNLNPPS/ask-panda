@@ -414,6 +414,7 @@ async def startup_event():
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
     """Simple health-check endpoint."""
+    logger.debug("Health check complete.")
     return {"status": "ok"}
 
 
