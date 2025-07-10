@@ -14,3 +14,4 @@ requests
 sentence-transformers
 transformers
 uvicorn[standard]
+numpy<2
