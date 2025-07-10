@@ -33,10 +33,11 @@ from collections import deque
 from fastmcp import FastMCP
 from time import sleep
 from typing import Optional
-from https import download_data
 
 import errorcodes
+from https import download_data
 from server import MCP_SERVER_URL, check_server_health
+from tools import fetch_data, read_json_file, read_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,85 +71,6 @@ def ask(question: str, model: str) -> str:
     return f"Error: {response.text}"
 
 
-async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> tuple[int, Optional[str]]:
-    """
-    Fetches a given file from PanDA.
-
-    Args:
-        panda_id (int): The job or task ID.
-        filename (str): The name of the file to fetch.
-        jsondata (bool): If True, return a JSON string for the job.
-
-    Returns:
-        str or None: The name of the downloaded file.
-        exit_code (int): The exit code indicating the status of the operation.
-    """
-    url = (
-        f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
-        if jsondata
-        else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
-    )
-    logger.info(f"Downloading file from: {url}")
-
-    # Use the download_data function to fetch the file - it will return an exit code and the filename
-    exit_code, response = download_data(url, prefix=filename) #  post(url)
-    if exit_code == errorcodes.EC_NOTFOUND:
-        logger.error(f"File not found for PandaID {panda_id} with filename {filename}.")
-        return exit_code, None
-    elif exit_code == errorcodes.EC_UNKNOWN_ERROR:
-        logger.error(f"Unknown error occurred while fetching data for PandaID {panda_id} with filename {filename}.")
-        return exit_code, None
-
-    if response and isinstance(response, str):
-        logger.info(f"errorcodes.EC_OK={errorcodes.EC_OK}, response={response}")
-        return errorcodes.EC_OK, response
-    if response:
-        response = response.decode('utf-8')
-        response = re.sub(r'([a-zA-Z0-9\])])(?=[A-Z])', r'\1\n', response)  # ensure that each line ends with \n
-        return errorcodes.EC_OK, response
-    else:
-        logger.error(f"Failed to fetch data for PandaID {panda_id} with filename {filename}.")
-        return errorcodes.EC_UNKNOWN_ERROR, None
-
-
-def read_json_file(file_path: str) -> Optional[dict]:
-    """
-    Reads a JSON file and returns its contents as a dictionary.
-
-    Args:
-        file_path (str): The path to the JSON file.
-
-    Returns:
-        dict or None: The contents of the JSON file as a dictionary, or None if the file cannot be read.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.warning(f"Failed to read JSON file {file_path}: {e}")
-        return None
-
-    return data
-
-
-def read_file(file_path: str) -> Optional[str]:
-    """
-    Reads a text file and returns its contents as a string.
-
-    Args:
-        file_path (str): The path to the text file.
-
-    Returns:
-        str or None: The contents of the text file as a string, or None if the file cannot be read.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError as e:
-        logger.warning(f"Failed to read file {file_path}: {e}")
-        return None
-
-
 async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, dict or None]:
     """
     Fetches all files and metadata from PanDA for a given job ID.
@@ -175,8 +97,7 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
     # Wait for both downloads to complete
     metadata_success, metadata_message = await metadata_task
     pilot_log_success, pilot_log_message = await pilot_log_task
-    logger.info(f"metadata_success={metadata_success}, metadata_message={metadata_message}")
-    logger.info(f"pilot_log_success={pilot_log_success}, pilot_log_message={pilot_log_message}")
+
     if pilot_log_success != 0:
         logger.warning(f"Failed to fetch the pilot log file for PandaID {pandaid} - will only use metadata for error analysis.")
     else:
