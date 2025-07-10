@@ -54,24 +54,36 @@ import time
 
 import errorcodes
 
-# import asyncio  # No longer explicitly needed after httpx integration
-from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from pydantic import BaseModel
 from fastmcp import FastMCP
-
-# import requests # No longer needed for LLaMA
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
+from pathlib import Path
+from pydantic import BaseModel
 from typing import Dict, Optional, Union  # For type hinting
-
 from vectorstore_manager import VectorStoreManager
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global vectorstore_manager, mcp
+
+    resources_dir = Path("resources")
+    chroma_dir = Path("chromadb")
+
+    vectorstore_manager = VectorStoreManager(resources_dir, chroma_dir)
+    vectorstore_manager.start_periodic_updates()
+
+    mcp = PandaMCP("panda", resources_dir, chroma_dir, vectorstore_manager)
+
+    logger.info("FastAPI startup complete. Vector store and MCP initialized successfully.")
+    yield
+
 # FastAPI instance
-app: FastAPI = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # Declare global references (initialized later)
 vectorstore_manager = None
@@ -391,24 +403,6 @@ class QuestionRequest(BaseModel):
 
     question: str
     model: str
-
-
-
-@app.on_event("startup")
-async def startup_event():
-    """FastAPI startup event handler."""
-    global vectorstore_manager, mcp
-
-    resources_dir = Path("resources")
-    chroma_dir = Path("chromadb")
-
-    vectorstore_manager = VectorStoreManager(resources_dir, chroma_dir)
-    vectorstore_manager.start_periodic_updates()
-
-    # Initialize MCP after vectorstore_manager
-    mcp = PandaMCP("panda", resources_dir, chroma_dir, vectorstore_manager)
-
-    logger.info("FastAPI startup complete. Vector store and MCP initialized successfully.")
 
 
 @app.get("/health")
