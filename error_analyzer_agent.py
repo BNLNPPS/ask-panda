@@ -21,6 +21,7 @@
 """This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -69,7 +70,7 @@ def ask(question: str, model: str) -> str:
     return f"Error: {response.text}"
 
 
-def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> tuple[int, Optional[str]]:
+async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> tuple[int, Optional[str]]:
     """
     Fetches a given file from PanDA.
 
@@ -89,7 +90,8 @@ def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> t
     )
     logger.info(f"Downloading file from: {url}")
 
-    exit_code, response = download_data(url) #  post(url)
+    # Use the download_data function to fetch the file - it will return an exit code and the filename
+    exit_code, response = download_data(url, prefix=filename) #  post(url)
     if exit_code == errorcodes.EC_NOTFOUND:
         logger.error(f"File not found for PandaID {panda_id} with filename {filename}.")
         return exit_code, None
@@ -98,6 +100,7 @@ def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> t
         return exit_code, None
 
     if response and isinstance(response, str):
+        logger.info(f"errorcodes.EC_OK={errorcodes.EC_OK}, response={response}")
         return errorcodes.EC_OK, response
     if response:
         response = response.decode('utf-8')
@@ -146,7 +149,7 @@ def read_file(file_path: str) -> Optional[str]:
         return None
 
 
-def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, dict or None]:
+async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, dict or None]:
     """
     Fetches all files and metadata from PanDA for a given job ID.
 
@@ -161,22 +164,40 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, di
     """
     _metadata_dictionary = {}
     _file_dictionary = {}
-    exit_code, json_file_name = fetch_data(pandaid, jsondata=True)
-    if not json_file_name:
-        logger.warning(f"Error: Failed to fetch the JSON data for PandaID {pandaid}.")
-        return exit_code, None, None
-    logger.info(f"Downloaded JSON file: {json_file_name}")
-    _file_dictionary["json"] = json_file_name
+
+    # Can only download a single log file
+    log_file = log_files[0] if log_files else 'pilotlog.txt'
+
+    # Download metadata and pilot log concurrently
+    metadata_task = asyncio.create_task(fetch_data(pandaid, jsondata=True))
+    pilot_log_task = asyncio.create_task(fetch_data(pandaid, filename=log_file))
+
+    # Wait for both downloads to complete
+    metadata_success, metadata_message = await metadata_task
+    pilot_log_success, pilot_log_message = await pilot_log_task
+    logger.info(f"metadata_success={metadata_success}, metadata_message={metadata_message}")
+    logger.info(f"pilot_log_success={pilot_log_success}, pilot_log_message={pilot_log_message}")
+    if pilot_log_success != 0:
+        logger.warning(f"Failed to fetch the pilot log file for PandaID {pandaid} - will only use metadata for error analysis.")
+    else:
+        _file_dictionary[log_file] = pilot_log_message
+        logger.info(f"Downloaded file: {log_file}, stored as {pilot_log_message}")
+
+    if metadata_success != 0:
+        logger.warning(f"Failed to fetch metadata for PandaID {pandaid} - will not be able to analyze the job failure.")
+        return errorcodes.EC_NOTFOUND, _file_dictionary, _metadata_dictionary
+
+    logger.info(f"Downloaded JSON file: {metadata_message}")
+    _file_dictionary["json"] = metadata_message
 
     # Verify that the current job is actually a failed job (otherwise, we don't want to download the log files)
-    job_data = read_json_file(json_file_name)
+    job_data = read_json_file(metadata_message)
     if not job_data:
-        logger.warning(f"Error: Failed to read the JSON data from {json_file_name}.")
+        logger.warning(f"Error: Failed to read the JSON data from {metadata_message}.")
         return errorcodes.EC_UNKNOWN_ERROR, None, None
     if not job_data['job']['jobstatus'] == 'failed':
         logger.warning(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
         return errorcodes.EC_UNKNOWN_ERROR, None, None
-    logger.info(f"Confirmed that job {pandaid} is in a failed state.")
 
     # Fetch pilot error descriptions
     pilot_error_descriptions = read_json_file("pilot_error_codes_and_descriptions.json")
@@ -201,20 +222,6 @@ def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or None, di
     except KeyError as e:
         logger.warning(f"Error: Missing key in JSON data: {e}")
         return errorcodes.EC_UNKNOWN_ERROR, None, None
-
-    # Proceed to download the log files
-    for log_file in log_files:
-        exit_code, log_file_name = fetch_data(pandaid, filename=log_file)
-        if not log_file_name:
-            logger.warning(f"Error: Failed to fetch the log file {log_file}.")
-            return exit_code, None, _metadata_dictionary
-
-        # Keep track of the file names
-        _file_dictionary[log_file] = log_file_name
-
-        # Process the log file content as needed
-        # For example, you can print it or analyze it further
-        logger.info(f"Downloaded file: {log_file}, stored as {log_file_name}")
 
     return errorcodes.EC_OK, _file_dictionary, _metadata_dictionary
 
@@ -368,7 +375,7 @@ def main():
     log_files = args.log_files.split(',')
 
     # Fetch the files from PanDA
-    exit_code, file_dictionary, metadata_dictionary = fetch_all_data(args.pandaid, log_files)
+    exit_code, file_dictionary, metadata_dictionary = asyncio.run(fetch_all_data(args.pandaid, log_files))
     if exit_code == errorcodes.EC_NOTFOUND:
         logger.warning(f"No log files found for PandaID {args.pandaid} - will proceed with only superficial knowledge of failure.")
     elif not file_dictionary:
