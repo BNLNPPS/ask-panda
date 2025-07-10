@@ -279,12 +279,13 @@ def hide_token(headers: dict) -> dict:
     return headers
 
 
-def download_data(url: str) -> tuple[int, str]:
+def download_data(url: str, prefix: str = None) -> tuple[int, str]:
     """
     Download a log file or JSON from the given URL and save it to a temporary file.
 
     Args:
         url (str): The URL of the log file to download.
+        prefix (str, optional): Optional prefix for the temporary file name.
 
     Returns:
         file name (str or None): The filename of the downloaded file, or None in case of failure.
@@ -299,7 +300,7 @@ def download_data(url: str) -> tuple[int, str]:
             return errorcodes.EC_NOTFOUND, None
         else:
             return errorcodes.EC_UNKNOWN_ERROR, None
-    with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp_file:
+    with tempfile.NamedTemporaryFile(delete=False, mode='wb', prefix=prefix) as tmp_file:
         for chunk in response.iter_content(chunk_size=8192):
             tmp_file.write(chunk)
 
