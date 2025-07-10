@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False) -> tuple[int, Optional[str]]:
+async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
     """
     Fetches a given file from PanDA.
 
@@ -48,16 +48,18 @@ async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False
         panda_id (int): The job or task ID.
         filename (str): The name of the file to fetch.
         jsondata (bool): If True, return a JSON string for the job.
+        url (str, optional): If provided, use this URL instead of constructing one.
 
     Returns:
         str or None: The name of the downloaded file.
         exit_code (int): The exit code indicating the status of the operation.
     """
-    url = (
-        f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
-        if jsondata
-        else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
-    )
+    if not url:
+        url = (
+            f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
+            if jsondata
+            else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+        )
     logger.info(f"Downloading file from: {url}")
 
     # Use the download_data function to fetch the file - it will return an exit code and the filename
