@@ -288,8 +288,8 @@ def download_data(url: str, prefix: str = None) -> tuple[int, str]:
         prefix (str, optional): Optional prefix for the temporary file name.
 
     Returns:
-        file name (str or None): The filename of the downloaded file, or None in case of failure.
         exit code (int): 0 if successful, non-zero if an error occurred.
+        file name (str or None): The filename of the downloaded file, or None in case of failure.
     """
     try:
         response = requests.get(url, stream=True)
