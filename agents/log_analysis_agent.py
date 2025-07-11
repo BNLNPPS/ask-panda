@@ -22,7 +22,6 @@
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import re
@@ -32,12 +31,10 @@ import sys
 from collections import deque
 from fastmcp import FastMCP
 from time import sleep
-from typing import Optional
 
-import errorcodes
-from https import download_data
-from server import MCP_SERVER_URL, check_server_health
-from tools import fetch_data, read_json_file, read_file
+from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
+from ask_panda_server import MCP_SERVER_URL, check_server_health
+from tools.tools import fetch_data, read_json_file, read_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,7 +103,7 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
 
     if metadata_success != 0:
         logger.warning(f"Failed to fetch metadata for PandaID {pandaid} - will not be able to analyze the job failure.")
-        return errorcodes.EC_NOTFOUND, _file_dictionary, _metadata_dictionary
+        return EC_NOTFOUND, _file_dictionary, _metadata_dictionary
 
     logger.info(f"Downloaded JSON file: {metadata_message}")
     _file_dictionary["json"] = metadata_message
@@ -115,22 +112,22 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
     job_data = read_json_file(metadata_message)
     if not job_data:
         logger.warning(f"Error: Failed to read the JSON data from {metadata_message}.")
-        return errorcodes.EC_UNKNOWN_ERROR, None, None
+        return EC_UNKNOWN_ERROR, None, None
     if not job_data['job']['jobstatus'] == 'failed':
         logger.warning(f"Error: The job with PandaID {pandaid} is not in a failed state - nothing to explain.")
-        return errorcodes.EC_UNKNOWN_ERROR, None, None
+        return EC_UNKNOWN_ERROR, None, None
 
     # Fetch pilot error descriptions
-    pilot_error_descriptions = read_json_file("pilot_error_codes_and_descriptions.json")
+    pilot_error_descriptions = read_json_file("cache/pilot_error_codes_and_descriptions.json")
     if not pilot_error_descriptions:
         logger.warning(f"Error: Failed to read the pilot error descriptions.")
-        return errorcodes.EC_UNKNOWN_ERROR, None, None
+        return EC_UNKNOWN_ERROR, None, None
 
     # Fetch transform error descriptions
-    transform_error_descriptions = read_json_file("trf_error_codes_and_descriptions.json")
+    transform_error_descriptions = read_json_file("cache/trf_error_codes_and_descriptions.json")
     if not transform_error_descriptions:
         logger.warning(f"Error: Failed to read the transform error descriptions.")
-        return errorcodes.EC_UNKNOWN_ERROR, None, None
+        return EC_UNKNOWN_ERROR, None, None
 
     # Extract relevant metadata from the JSON data
     try:
@@ -142,9 +139,9 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
         _metadata_dictionary["trferrordescription"] = transform_error_descriptions.get(str(_metadata_dictionary.get("exeerrorcode")))
     except KeyError as e:
         logger.warning(f"Error: Missing key in JSON data: {e}")
-        return errorcodes.EC_UNKNOWN_ERROR, None, None
+        return EC_UNKNOWN_ERROR, None, None
 
-    return errorcodes.EC_OK, _file_dictionary, _metadata_dictionary
+    return EC_OK, _file_dictionary, _metadata_dictionary
 
 
 def extract_preceding_lines_streaming(log_file: str, error_pattern: str, num_lines: int = 20, output_file: str = None):
@@ -268,7 +265,7 @@ def main():
     """
     # Check server health before proceeding
     ec = check_server_health()
-    if ec == errorcodes.EC_TIMEOUT:
+    if ec == EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
         sleep(10)  # Wait for a while before retrying
         ec = check_server_health()
@@ -297,7 +294,7 @@ def main():
 
     # Fetch the files from PanDA
     exit_code, file_dictionary, metadata_dictionary = asyncio.run(fetch_all_data(args.pandaid, log_files))
-    if exit_code == errorcodes.EC_NOTFOUND:
+    if exit_code == EC_NOTFOUND:
         logger.warning(f"No log files found for PandaID {args.pandaid} - will proceed with only superficial knowledge of failure.")
     elif not file_dictionary:
         logger.warning(f"Error: Failed to fetch files for PandaID {args.pandaid}.")
@@ -309,7 +306,7 @@ def main():
         # Use contextual mode to analyze the log files
         # Only analyze the pilot log for now
         log_file = 'pilotlog.txt'
-        if file_dictionary and log_file not in file_dictionary and exit_code != errorcodes.EC_NOTFOUND:
+        if file_dictionary and log_file not in file_dictionary and exit_code != EC_NOTFOUND:
             logger.warning(f"Error: Log file {log_file} not found in the fetched files.")
             sys.exit(1)
         output_file = f"{args.pandaid}-{log_file}_extracted.txt"

@@ -28,8 +28,8 @@ from json import JSONDecodeError  # Added for specific exception handling
 from time import sleep
 # from fastmcp import FastMCP # Removed unused import
 
-import errorcodes
-from server import MCP_SERVER_URL, check_server_health
+from tools.errorcodes import EC_TIMEOUT
+from ask_panda_server import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(
@@ -104,7 +104,7 @@ def main() -> None:
     """
     # Check server health before proceeding
     ec = check_server_health()
-    if ec == errorcodes.EC_TIMEOUT:
+    if ec == EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
         sleep(10)  # Wait for a while before retrying
         ec = check_server_health()
@@ -116,7 +116,7 @@ def main() -> None:
         sys.exit(1)
 
     if len(sys.argv) != 3:
-        logger.info("Usage: python agent.py \"<question>\" <model>")
+        logger.info("Usage: python document_query_agent.py \"<question>\" <model>")
         sys.exit(1)
 
     question, model = sys.argv[1], sys.argv[2]

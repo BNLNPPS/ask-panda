@@ -49,10 +49,9 @@ import httpx  # Import httpx
 import openai
 import os
 import requests  # For checking MCP server health
-import threading
-import time
 
-import errorcodes
+from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
+from tools.vectorstore_manager import VectorStoreManager
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -64,8 +63,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from pathlib import Path
 from pydantic import BaseModel
-from typing import Dict, Optional, Union  # For type hinting
-from vectorstore_manager import VectorStoreManager
+from typing import Dict, Optional  # For type hinting
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -132,19 +130,19 @@ def check_server_health() -> int:
         response.raise_for_status()
         if response.json().get("status") == "ok":
             logger.info("MCP server is running.")
-            return errorcodes.EC_OK
+            return EC_OK
         else:
             logger.warning("MCP server is not running.")
-            return errorcodes.EC_SERVERNOTRUNNING
+            return EC_SERVERNOTRUNNING
     except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout):
         logger.warning(f"Timeout while trying to connect to MCP server at {MCP_SERVER_URL}.")
-        return errorcodes.EC_TIMEOUT
+        return EC_TIMEOUT
     except requests.RequestException as e:
         logger.warning(f"Cannot connect to MCP server at {MCP_SERVER_URL}: {e}")
-        return errorcodes.EC_CONNECTIONPROBLEM
+        return EC_CONNECTIONPROBLEM
     except Exception as e:
         logger.error(f"An unexpected error occurred while checking MCP server health: {e}")
-        return errorcodes.EC_UNKNOWN_ERROR
+        return EC_UNKNOWN_ERROR
 
 class PandaMCP(FastMCP):
     """

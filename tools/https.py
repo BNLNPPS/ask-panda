@@ -43,7 +43,7 @@ import urllib.parse
 from urllib.parse import parse_qs
 from typing import IO
 
-import errorcodes
+from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -309,25 +309,25 @@ def download_data(url: str, prefix: str = None, filename: str = None) -> tuple[i
     except requests.exceptions.HTTPError as e:
         logger.warning(f"HTTP error occurred: {e}")
         if "Not Found for url" in str(e):
-            return errorcodes.EC_NOTFOUND, None
+            return EC_NOTFOUND, None
         else:
-            return errorcodes.EC_UNKNOWN_ERROR, None
+            return EC_UNKNOWN_ERROR, None
     if filename:
         logger.info(f"size of file to download: {response.headers.get('Content-Length', 'unknown')} bytes")
         with open(filename, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        return errorcodes.EC_OK, filename
+        return EC_OK, filename
 
     else:
         with tempfile.NamedTemporaryFile(delete=False, mode='wb', prefix=prefix) as tmp_file:
             for chunk in response.iter_content(chunk_size=8192):
                 tmp_file.write(chunk)
 
-        return errorcodes.EC_OK, tmp_file.name
+        return EC_OK, tmp_file.name
 
-    return errorcodes.EC_UNKNOWN_ERROR, None
+    return EC_UNKNOWN_ERROR, None
 
 
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:

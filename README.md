@@ -39,11 +39,11 @@ export GEMINI_API_KEY='your_gemini_api_key'
 export LLAMA_API_URL='http://localhost:11434/api/generate'  # For Ollama Llama3 model
 ```
 
-# MCP server and chatbot agent ("DocumentQueryAgent")
+# MCP server and Document Query Agent
 
 1. Start the Server:
 ```
-uvicorn server:app --reload
+uvicorn ask_panda_server:app --reload &
 ```
 When the server is started, it will create a vector store (Chroma DB) for the static conversation based on documents in the
 resources directory. The server will monitor the resources directory for changes (once per minute) and will update the vector store when necessary.
@@ -56,20 +56,20 @@ The server will write all log messages to the `ask_panda_server_log.txt` file in
 
 2. Run the Agent (example queries):
 ```
-python agent.py "What is PanDA?" openai
-python agent.py "How does the PanDA pilot work?" anthropic
-python agent.py "What is the purpose of the PanDA server?" llama
-python agent.py "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined)
-python agent.py "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
+python3 -m agents.document_query_agent "What is PanDA?" openai
+python3 -m agents.document_query_agent "How does the PanDA pilot work?" anthropic
+python3 -m agents.document_query_agent "What is the purpose of the PanDA server?" llama
+python3 -m agents.document_query_agent "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined)
+python3 -m agents.document_query_agent "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
 ```
 
-# Error Analysis Agent ("LogAnalysisAgent")
+# Log Analysis Agent
 
 1. Start the Server as described above.
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python error_analyzer_agent.py [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
+python3 -m agents.error_analyzer_agent [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
 ```
 **Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
 the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
@@ -83,7 +83,7 @@ This is a limitation of the current implementation and is not a reflection of th
 **Note**: For now, use --log-files pilotlog.txt, --model openai or gemini, and --mode contextual. E.g. analyze a job that failed with pilot error code 1150, "Looping job killed by pilot":
 
 ```
-python error_analyzer_agent.py --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
+python3 -m agents.log_analysis_agent --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
 ```
 
 The following pilot error codes have been verified to work with the error analysis agent:
@@ -91,13 +91,29 @@ The following pilot error codes have been verified to work with the error analys
 1099, 1104, 1137, 1150, 1152, 1201, 1213, 1235, 1236, 1305, 1322, 1324, 1354, 1361, 1368.
 ```
 
+# Smart Reporting Agent
+
+The smart reporting agent is a tool that can be used to generate reports based on the PanDA job records. Currently,
+it downloads JSON files from the PanDA Monitoring Service that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours. 
+The corresponding JSON files will be refreshed automatically, corresponding to the time period of the job records.
+
+Note: This is work in progress. The idea is that these reports can be used by other agents.
+
+The agent is run as follows:
+```python3 -m agents.smart_reporting_agent --pid PID --cache-dir CACHE_DIR
+```
+where `PID` is the process id of the MCP server and `CACHE_DIR` is the directory where the JSON files will be stored.
+The agent will abort when it sees that the MCP server is no longer running.
+
+Eventually, the agent will be launched automatically by the MCP server, but for now it needs to be run manually.
+
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
 and can be inspected using the `vectorstore_manager.py` script.
 
 ```
-python vectorstore_manager.py --dump
+python3 -m tools.inspect_vectorstore --dump
 ```
 
 If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option, 

@@ -1,11 +1,11 @@
-"""Unit tests for the RAG MCP server (server.py)."""
+"""Unit tests for the RAG MCP server (ask_panda_server.py)."""
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from pytest_mock import MockerFixture  # For type hinting mocker
 
-# Import necessary classes and constants from server.py
-from server import PandaMCP
+# Import necessary classes and constants from ask_panda_server.py
+from ask_panda_server import PandaMCP
 
 # Import specific exceptions for mocking
 import anthropic

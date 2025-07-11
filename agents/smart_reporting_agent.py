@@ -19,25 +19,18 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
 import argparse
-import asyncio
-import json
 import logging
 import os
 import psutil
-import re
-import requests
 import sys
 import time
 
-from collections import deque
 from fastmcp import FastMCP
 from time import sleep
-from typing import Optional
 
-import errorcodes
-from https import download_data
-from server import MCP_SERVER_URL, check_server_health
-from tools import fetch_data, read_json_file, read_file
+from tools.errorcodes import EC_TIMEOUT
+from tools.https import download_data
+from ask_panda_server import MCP_SERVER_URL, check_server_health
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,7 +51,7 @@ def main():
     """
     # Check server health before proceeding
     ec = check_server_health()
-    if ec == errorcodes.EC_TIMEOUT:
+    if ec == EC_TIMEOUT:
         logger.warning(f"Timeout while trying to connect to {MCP_SERVER_URL}.")
         sleep(10)  # Wait for a while before retrying
         ec = check_server_health()

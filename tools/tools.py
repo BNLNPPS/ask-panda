@@ -20,14 +20,13 @@
 
 """This module provides tools for the MCP server and agents,"""
 
-import asyncio
 import json
 import logging
 import re
 from typing import Optional
 
-import errorcodes
-from https import download_data
+from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
+from tools.https import download_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,22 +63,22 @@ async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False
 
     # Use the download_data function to fetch the file - it will return an exit code and the filename
     exit_code, response = download_data(url, prefix=filename) #  post(url)
-    if exit_code == errorcodes.EC_NOTFOUND:
+    if exit_code == EC_NOTFOUND:
         logger.error(f"File not found for PandaID {panda_id} with filename {filename}.")
         return exit_code, None
-    elif exit_code == errorcodes.EC_UNKNOWN_ERROR:
+    elif exit_code == EC_UNKNOWN_ERROR:
         logger.error(f"Unknown error occurred while fetching data for PandaID {panda_id} with filename {filename}.")
         return exit_code, None
 
     if response and isinstance(response, str):
-        return errorcodes.EC_OK, response
+        return EC_OK, response
     if response:
         response = response.decode('utf-8')
         response = re.sub(r'([a-zA-Z0-9\])])(?=[A-Z])', r'\1\n', response)  # ensure that each line ends with \n
-        return errorcodes.EC_OK, response
+        return EC_OK, response
     else:
         logger.error(f"Failed to fetch data for PandaID {panda_id} with filename {filename}.")
-        return errorcodes.EC_UNKNOWN_ERROR, None
+        return EC_UNKNOWN_ERROR, None
 
 
 def read_json_file(file_path: str) -> Optional[dict]:
