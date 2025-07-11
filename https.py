@@ -29,6 +29,7 @@
 # export PANDA_AUTH_TOKEN_KEY=panda_token_key
 
 import json
+import logging
 import os
 import platform
 import requests
@@ -43,6 +44,16 @@ from urllib.parse import parse_qs
 from typing import IO
 
 import errorcodes
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler("tools-https.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 def open_file(filename: str, mode: str) -> IO:
@@ -60,7 +71,7 @@ def open_file(filename: str, mode: str) -> IO:
     try:
         _file = open(filename, mode, encoding='utf-8')
     except IOError as exc:
-        print(f"Exception caught: {exc}")
+        logger.warning(f"Exception caught: {exc}")
 
     return _file
 
@@ -109,12 +120,12 @@ def locate_token(auth_token: str, key: bool = False) -> str:
     path = ""
     for _path in paths:
         if os.path.exists(_path):
-            print(f'found {_path}')
+            logger.info(f'found {_path}')
             path = _path
             break
 
     if path == "":
-        print(f'did not find any local token file ({auth_token}) in paths={paths}')
+        logger.warning(f'did not find any local token file ({auth_token}) in paths={paths}')
 
     return path
 
@@ -131,12 +142,12 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
     if os.path.exists(path):
         auth_token_content = read_file(path)
         if not auth_token_content:
-            print(f'failed to read file {path}')
+            logger.warning(f'failed to read file {path}')
             return ""
         else:
-            print(f'read contents from file {path} (length = {len(auth_token_content)})')
+            logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
     else:
-        print(f'path does not exist: {path}')
+        logger.warning(f'path does not exist: {path}')
         return ""
 
     return auth_token_content
@@ -215,13 +226,13 @@ def request2(url: str = "", data: dict = None, secure: bool = True) -> str or di
     use_oidc_token = auth_token and auth_origin
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
     if not auth_token_content and use_oidc_token:
-        print('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
         return ""
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    print(f'headers = {hide_token(headers.copy())}')
-    print(f'data = {data}')
+    logger.info(f'headers = {hide_token(headers.copy())}')
+    logger.info(f'data = {data}')
 
     # set up the request
     data_json = {}  # to implement
@@ -236,16 +247,16 @@ def request2(url: str = "", data: dict = None, secure: bool = True) -> str or di
 
     # Send the request securely
     try:
-        print('sending data to server')
+        logger.info('sending data to server')
         with urllib.request.urlopen(req, context=ssl_context, timeout=60) as response:
             # Handle the response here
-            print(f"response.status={response.status}, response.reason={response.reason}")
+            logger.info(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
             if 'getProxy' not in url:
-                print(f"response={ret}")
-        print('sent request to server')
+                logger.info(f"response={ret}")
+        logger.info('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
-        print(f'failed to send request: {exc}')
+        logger.warning(f'failed to send request: {exc}')
         ret = ""
     else:
         if secure and isinstance(ret, str):
@@ -255,7 +266,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True) -> str or di
                 try:
                     ret = json.loads(ret)
                 except json.JSONDecodeError as e:
-                    print(f'failed to parse response: {e}')
+                    logger.warning(f'failed to parse response: {e}')
             else:  # response="StatusCode=_some number_"
                 # Parse the query string into a dictionary
                 query_dict = parse_qs(ret)
@@ -279,13 +290,14 @@ def hide_token(headers: dict) -> dict:
     return headers
 
 
-def download_data(url: str, prefix: str = None) -> tuple[int, str]:
+def download_data(url: str, prefix: str = None, filename: str = None) -> tuple[int, str]:
     """
     Download a log file or JSON from the given URL and save it to a temporary file.
 
     Args:
         url (str): The URL of the log file to download.
         prefix (str, optional): Optional prefix for the temporary file name.
+        filename (str, optional): Optional filename for the downloaded file (in case tmp file is not wanted).
 
     Returns:
         exit code (int): 0 if successful, non-zero if an error occurred.
@@ -295,16 +307,25 @@ def download_data(url: str, prefix: str = None) -> tuple[int, str]:
         response = requests.get(url, stream=True)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(f"HTTP error occurred: {e}")
+        logger.warning(f"HTTP error occurred: {e}")
         if "Not Found for url" in str(e):
             return errorcodes.EC_NOTFOUND, None
         else:
             return errorcodes.EC_UNKNOWN_ERROR, None
-    with tempfile.NamedTemporaryFile(delete=False, mode='wb', prefix=prefix) as tmp_file:
-        for chunk in response.iter_content(chunk_size=8192):
-            tmp_file.write(chunk)
+    if filename:
+        logger.info(f"size of file to download: {response.headers.get('Content-Length', 'unknown')} bytes")
+        with open(filename, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=8192):
+                file.write(chunk)
 
-        return errorcodes.EC_OK, tmp_file.name  # Return the file path
+        return errorcodes.EC_OK, filename
+
+    else:
+        with tempfile.NamedTemporaryFile(delete=False, mode='wb', prefix=prefix) as tmp_file:
+            for chunk in response.iter_content(chunk_size=8192):
+                tmp_file.write(chunk)
+
+        return errorcodes.EC_OK, tmp_file.name
 
     return errorcodes.EC_UNKNOWN_ERROR, None
 
@@ -323,21 +344,21 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     # first get the token key
     token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
     if not token_key:
-        print('PANDA_AUTH_TOKEN_KEY is not set')
+        logger.warning('PANDA_AUTH_TOKEN_KEY is not set')
         #return False
 
     panda_token_key = get_auth_token_content(token_key, key=True)
     if panda_token_key:
-        print(f'read token key: {token_key}')
+        logger.info(f'read token key: {token_key}')
     else:
-        print('failed to get panda_token_key')
+        logger.warning('failed to get panda_token_key')
         #return False
 
     # now get the actual token
     auth_token, auth_origin = get_local_oidc_token_info()
     auth_token_content = get_auth_token_content(auth_token)
     if not auth_token_content:
-        print(f'failed to get auth token content for {auth_token}')
+        logger.warning(f'failed to get auth token content for {auth_token}')
         #return False
 
     headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
@@ -345,12 +366,12 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     # define the request headers
     if headers is None:
         headers = {"User-Agent": "Ask_PanDA-1.0.0"}
-    print(f"headers = {hide_token(headers.copy())}")
+    logger.info(f"headers = {hide_token(headers.copy())}")
 
     # create a context with certificate verification
     ssl_context = get_ssl_context()
 
-    print(f"url={url}")
+    logger.info(f"url={url}")
     req = urllib.request.Request(url, headers=headers)
 
     # download the file
@@ -358,7 +379,7 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         with urllib.request.urlopen(req, context=ssl_context, timeout=timeout) as response:
             content = response.read()
     except urllib.error.URLError as exc:
-        print(f"error occurred with urlopen: {exc.reason}")
+        logger.warning(f"error occurred with urlopen: {exc.reason}")
         # Handle the error, set content to None or handle as needed
         content = "Failed to download the log file - cannot assist with this error"
 
