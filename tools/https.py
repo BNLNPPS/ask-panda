@@ -313,7 +313,7 @@ def download_data(url: str, prefix: str = None, filename: str = None) -> tuple[i
         else:
             return EC_UNKNOWN_ERROR, None
     if filename:
-        logger.info(f"size of file to download: {response.headers.get('Content-Length', 'unknown')} bytes")
+        logger.info(f"Size of file to download: {response.headers.get('Content-Length', 'unknown')} bytes")
         with open(filename, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
