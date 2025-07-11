@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import psutil
 import re
 import requests
 import sys
@@ -72,18 +73,28 @@ def main():
 
     parser.add_argument('--url', type=str, required=True,
                         help='Data source URL')
+    parser.add_argument('--pid', type=str, required=True,
+                        help='MCP server process ID')
 
     args = parser.parse_args()
 
-    # go into a loop until the user interrupts
-
-    # download data from the given url every 24h, 12h, 6h, 3h, 1h
+    # download error data from the given url every 24h, 12h, 6h, 3h, 1h
     prefix = "error_data"
-    time_and_filenames = {24: f"{prefix}_24h.json",
-                          12: f"{prefix}_12h.json",
-                          6: f"{prefix}_6h.json",
-                          3: f"{prefix}_3h.json",
-                          1: f"{prefix}_1h.json"}
+    error_data = {24: f"{prefix}_24h.json",
+                  12: f"{prefix}_12h.json",
+                  6: f"{prefix}_6h.json",
+                  3: f"{prefix}_3h.json",
+                  1: f"{prefix}_1h.json"}
+
+    # go into a loop until the user interrupts
+    while True:
+        # Verify that the MCP server is still running
+        if not psutil.pid_exists(int(args.pid)):
+            logger.error(f"MCP server with PID {args.pid} is no longer running. Exiting.")
+            sys.exit(1)
+
+        # Sleep
+        sleep(10)
 
 if __name__ == "__main__":
     main()

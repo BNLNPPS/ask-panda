@@ -10,6 +10,7 @@ langchain-chroma
 langchain-huggingface
 langchain-openai
 openai
+psutil
 requests
 sentence-transformers
 transformers
