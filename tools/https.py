@@ -185,7 +185,7 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
         headers = {}
 
     # always add the user agent
-    headers["User-Agent"] =  f'Ask_PanDA/1.0.0 (Python {sys.version.split()[0]}; {platform.system()} {platform.machine()})'
+    headers["User-Agent"] = f'Ask_PanDA/1.0.0 (Python {sys.version.split()[0]}; {platform.system()} {platform.machine()})'
 
     # only add the content type if there is a body to send (that is of type application/json)
     if content_type:
@@ -345,21 +345,21 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
     if not token_key:
         logger.warning('PANDA_AUTH_TOKEN_KEY is not set')
-        #return False
+        # return False
 
     panda_token_key = get_auth_token_content(token_key, key=True)
     if panda_token_key:
         logger.info(f'read token key: {token_key}')
     else:
         logger.warning('failed to get panda_token_key')
-        #return False
+        # return False
 
     # now get the actual token
     auth_token, auth_origin = get_local_oidc_token_info()
     auth_token_content = get_auth_token_content(auth_token)
     if not auth_token_content:
         logger.warning(f'failed to get auth token content for {auth_token}')
-        #return False
+        # return False
 
     headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
 
