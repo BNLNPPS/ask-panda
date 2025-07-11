@@ -30,6 +30,7 @@ from time import sleep
 
 from tools.errorcodes import EC_TIMEOUT
 from tools.https import download_data
+from tools.tools import reformat_errors
 from ask_panda_server import MCP_SERVER_URL, check_server_health
 
 logging.basicConfig(
@@ -105,6 +106,8 @@ def main():
                 exit_code, _ = download_data(url, filename=path)
                 if exit_code != 0:
                     logger.error(f"Failed to download {filename}")
+                else:
+                    _ = reformat_errors(path, os.path.join(args.cache_dir, filename.replace('.json', '_reformatted.json')))
             else:
                 # If the file exists, check if it is older than N hours
                 file_mtime = os.path.getmtime(path)
