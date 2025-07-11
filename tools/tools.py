@@ -27,6 +27,7 @@ from typing import Optional
 
 from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
 from tools.https import download_data
+from tools.vectorstore_manager import VectorStoreManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -117,3 +118,24 @@ def read_file(file_path: str) -> Optional[str]:
     except FileNotFoundError as e:
         logger.warning(f"Failed to read file {file_path}: {e}")
         return None
+
+
+def get_vectorstore_manager(resources_dir: str, chroma_dir: str) -> VectorStoreManager:
+    """
+    Return the VectorStoreManager instance.
+
+    Args:
+        resources_dir (str): The path to the resources directory.
+        chroma_dir (str): The path to the ChromaDB directory.
+
+    Returns:
+        VectorStoreManager: The instance of the VectorStoreManager.
+    """
+    if not resources_dir.exists():
+        logger.error(f"Resources directory {resources_dir} does not exist.")
+        return None
+    if not chroma_dir.exists():
+        logger.error(f"ChromaDB directory {chroma_dir} does not exist.")
+        return None
+
+    return VectorStoreManager(resources_dir, chroma_dir)

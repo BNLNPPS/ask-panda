@@ -50,9 +50,6 @@ import openai
 import os
 import requests  # For checking MCP server health
 
-from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
-from tools.vectorstore_manager import VectorStoreManager
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastmcp import FastMCP
@@ -65,14 +62,28 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Dict, Optional  # For type hinting
 
+from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
+from tools.tools import get_vectorstore_manager
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan event handler to initialize resources.
+
+    Args:
+        app: FastAPI instance to attach the lifespan handler to.
+    """
     global vectorstore_manager, mcp
 
     resources_dir = Path("resources")
     chroma_dir = Path("chromadb")
 
-    vectorstore_manager = VectorStoreManager(resources_dir, chroma_dir)
+    vectorstore_manager = get_vectorstore_manager(resources_dir, chroma_dir)
+    if not vectorstore_manager:
+        logger.error("Failed to initialize VectorStoreManager.")
+        raise RuntimeError("VectorStoreManager initialization failed.")
+
     vectorstore_manager.start_periodic_updates()
 
     mcp = PandaMCP("panda", resources_dir, chroma_dir, vectorstore_manager)
@@ -159,7 +170,7 @@ class PandaMCP(FastMCP):
             namespace: str,
             resources_dir: Path,
             vectorstore_dir: Path,
-            vectorstore_manager: VectorStoreManager
+            vectorstore_manager: vectorstore_manager
     ):
         """
         Initializes the PandaMCP class.
