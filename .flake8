@@ -1,5 +1,5 @@
 [flake8]
-max-line-length = 88
+max-line-length = 160
 # D203: 1 blank line required before class docstring (conflicts with black)
 # W503: line break before binary operator (conflicts with black)
-ignore = D203, W503
+ignore = D203, W503, E402

@@ -53,11 +53,11 @@ import requests  # For checking MCP server health
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastmcp import FastMCP
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_openai import OpenAIEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_community.document_loaders import TextLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Dict, Optional  # For type hinting
@@ -117,11 +117,11 @@ if OPENAI_API_KEY:
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-#vectorstore: FAISS = FAISS.load_local(
+# vectorstore: FAISS = FAISS.load_local(
 #    "vectorstore",
 #    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
 #    allow_dangerous_deserialization=True,  # Safe if it's your own data
-#)
+# )
 
 
 def check_server_health() -> int:
@@ -154,6 +154,7 @@ def check_server_health() -> int:
     except Exception as e:
         logger.error(f"An unexpected error occurred while checking MCP server health: {e}")
         return EC_UNKNOWN_ERROR
+
 
 class PandaMCP(FastMCP):
     """
@@ -445,4 +446,3 @@ async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
 
     logger.info(f"Query processed using model '{request.model.lower()}'.")
     return {"answer": response_text}
-
