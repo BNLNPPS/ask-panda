@@ -100,7 +100,8 @@ The corresponding JSON files will be refreshed automatically, corresponding to t
 Note: This is work in progress. The idea is that these reports can be used by other agents.
 
 The agent is run as follows:
-```python3 -m agents.smart_reporting_agent --pid PID --cache-dir CACHE_DIR
+```
+python3 -m agents.smart_reporting_agent --pid PID --cache-dir CACHE_DIR
 ```
 where `PID` is the process id of the MCP server and `CACHE_DIR` is the directory where the JSON files will be stored.
 The agent will abort when it sees that the MCP server is no longer running.
