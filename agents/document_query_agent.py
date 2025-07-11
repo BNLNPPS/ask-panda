@@ -87,6 +87,7 @@ def ask(question: str, model: str) -> str:
     except requests.exceptions.RequestException as e:
         return f"Error: Network issue or server unreachable - {e}"
 
+
 def main() -> None:
     """
     Parse command-line arguments, call the RAG server, and print the response.
@@ -126,6 +127,7 @@ def main() -> None:
         sys.exit(1)
     else:
         logger.info(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
+
 
 if __name__ == "__main__":
     main()

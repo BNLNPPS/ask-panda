@@ -120,13 +120,13 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
     # Fetch pilot error descriptions
     pilot_error_descriptions = read_json_file("cache/pilot_error_codes_and_descriptions.json")
     if not pilot_error_descriptions:
-        logger.warning(f"Error: Failed to read the pilot error descriptions.")
+        logger.warning("Error: Failed to read the pilot error descriptions.")
         return EC_UNKNOWN_ERROR, None, None
 
     # Fetch transform error descriptions
     transform_error_descriptions = read_json_file("cache/trf_error_codes_and_descriptions.json")
     if not transform_error_descriptions:
-        logger.warning(f"Error: Failed to read the transform error descriptions.")
+        logger.warning("Error: Failed to read the transform error descriptions.")
         return EC_UNKNOWN_ERROR, None, None
 
     # Extract relevant metadata from the JSON data
@@ -235,7 +235,8 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
         return ""
 
-    question = "You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, and the pilot has detected an error.\n\n"
+    question = ("You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, "
+                "and the pilot has detected an error.\n\n")
     if log_extracts:
         question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
         question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
@@ -247,8 +248,10 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         question += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
 
     question += (
-        "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. Separate your answer into the following sections: "
-        "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't oversimplify explanations), and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
+        "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. "
+        "Separate your answer into the following sections: "
+        "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't "
+        "oversimplify explanations), and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
 
     return question
 
@@ -337,8 +340,6 @@ def main():
         logger.error(f"Invalid mode specified: {args.mode}. Use 'ML' or 'contextual'.")
         sys.exit(1)
 
-    #answer = ask(question, model)
-    #print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
 
 if __name__ == "__main__":
     main()
