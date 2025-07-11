@@ -27,6 +27,7 @@ import psutil
 import re
 import requests
 import sys
+import time
 
 from collections import deque
 from fastmcp import FastMCP
@@ -71,14 +72,15 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
-    parser.add_argument('--url', type=str, required=True,
-                        help='Data source URL')
     parser.add_argument('--pid', type=str, required=True,
                         help='MCP server process ID')
+    parser.add_argument('--cache-dir', type=str, required=True,
+                        help='Cache directory for storing downloaded data')
 
     args = parser.parse_args()
 
     # download error data from the given url every 24h, 12h, 6h, 3h, 1h
+    url_errors = "https://bigpanda.cern.ch/errors/?json&hours=NNN&limit=10000000&fields=errsBySite"
     prefix = "error_data"
     error_data = {24: f"{prefix}_24h.json",
                   12: f"{prefix}_12h.json",
@@ -86,14 +88,46 @@ def main():
                   3: f"{prefix}_3h.json",
                   1: f"{prefix}_1h.json"}
 
+    # If the cache directory does not exist, create it
+    if not os.path.exists(args.cache_dir):
+        logger.info(f"Creating cache directory: {args.cache_dir}")
+        os.makedirs(args.cache_dir)
+
     # go into a loop until the user interrupts
+    iteration = 0
     while True:
         # Verify that the MCP server is still running
         if not psutil.pid_exists(int(args.pid)):
-            logger.error(f"MCP server with PID {args.pid} is no longer running. Exiting.")
+            logger.error(f"MCP server with PID {args.pid} is no longer running. Exiting Smart Reporting Agent.")
             sys.exit(1)
 
+        # Download error data from the given URL
+        for key in error_data:
+            filename = error_data[key]
+            path = os.path.join(args.cache_dir, filename)
+            url = url_errors.replace("NNN", str(key))
+
+            if not os.path.exists(path):
+                logger.info(f"Downloading {filename} from {url}")
+                exit_code, _ = download_data(url, filename=path)
+                if exit_code != 0:
+                    logger.error(f"Failed to download {filename}")
+            else:
+                # If the file exists, check if it is older than N hours
+                file_mtime = os.path.getmtime(path)
+                file_age_hours = (time.time() - file_mtime) / 3600
+                if file_age_hours > key:
+                    logger.info(f"File {filename} is older than {key} hours, downloading again.")
+                    exit_code, _ = download_data(url, filename=path)
+                    if exit_code != 0:
+                        logger.error(f"Failed to download {filename}")
+
+        # Download the CRIC data once per 10 minutes
+        # .. see Claude code
+
         # Sleep
+        logger.info(f"iteration #{iteration}")
+        iteration += 1
         sleep(10)
 
 if __name__ == "__main__":
