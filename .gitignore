@@ -1,5 +1,6 @@
 /vectorstore/
 /venv/
+/cache/
 ask_panda_server.log
 error_analyzer.log
 *.log
