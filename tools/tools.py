@@ -69,7 +69,7 @@ async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False
     logger.info(f"Downloading file from: {url}")
 
     # Use the download_data function to fetch the file - it will return an exit code and the filename
-    exit_code, response = download_data(url, prefix=filename) #  post(url)
+    exit_code, response = download_data(url, prefix=filename)
     if exit_code == EC_NOTFOUND:
         logger.error(f"File not found for PandaID {panda_id} with filename {filename}.")
         return exit_code, None
@@ -103,8 +103,6 @@ def read_json_file(file_path: str) -> Optional[dict]:
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to read JSON file {file_path}: {e}")
         return None
-
-    return data
 
 
 def read_file(file_path: str) -> Optional[str]:
