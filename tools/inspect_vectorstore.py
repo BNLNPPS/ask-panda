@@ -17,7 +17,9 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
-# inspect_vectorstore.py
+
+""" Inspect Chroma Vectorstore Contents"""
+
 import argparse
 from pathlib import Path
 import chromadb
@@ -25,12 +27,13 @@ from chromadb.config import Settings
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma  # <-- Updated import
 
+
 def load_chroma_vectorstore(chroma_dir: Path):
-    """Load Chroma vectorstore from specified directory.
+    """
+    Load Chroma vectorstore from specified directory.
 
     Args:
         chroma_dir (Path): Path to the directory containing the Chroma vectorstore.
-
     Returns:
         Chroma: Loaded Chroma vectorstore object.
     """
@@ -47,8 +50,10 @@ def load_chroma_vectorstore(chroma_dir: Path):
     )
     return vectorstore
 
+
 def display_vectorstore_contents(vectorstore: Chroma, dump_binary: bool):
-    """Display contents of the Chroma vectorstore.
+    """
+    Display contents of the Chroma vectorstore.
 
     Args:
         vectorstore (Chroma): The loaded vectorstore.
@@ -74,6 +79,7 @@ def display_vectorstore_contents(vectorstore: Chroma, dump_binary: bool):
 
         print("-" * 40)
 
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect Chroma vectorstore contents.")
     parser.add_argument(
@@ -93,6 +99,6 @@ def main():
     vectorstore = load_chroma_vectorstore(args.chroma_dir)
     display_vectorstore_contents(vectorstore, args.dump)
 
+
 if __name__ == "__main__":
     main()
-
