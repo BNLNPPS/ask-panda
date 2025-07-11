@@ -104,7 +104,8 @@ The agent is run as follows:
 python3 -m agents.smart_reporting_agent --pid PID --cache-dir CACHE_DIR
 ```
 where `PID` is the process id of the MCP server and `CACHE_DIR` is the directory where the JSON files will be stored.
-The agent will abort when it sees that the MCP server is no longer running.
+The agent will abort when it sees that the MCP server is no longer running. The cache directory will be created if it does not exist
+(e.g. set it to 'cache').
 
 Eventually, the agent will be launched automatically by the MCP server, but for now it needs to be run manually.
 
