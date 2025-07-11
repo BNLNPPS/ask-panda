@@ -22,6 +22,7 @@
 
 import json
 import logging
+import os
 import re
 from typing import Optional
 
@@ -131,6 +132,10 @@ def get_vectorstore_manager(resources_dir: str, chroma_dir: str) -> VectorStoreM
     Returns:
         VectorStoreManager: The instance of the VectorStoreManager.
     """
+    if not chroma_dir.exists():
+        # create the directory if it does not exist
+        os.makedirs(chroma_dir, exist_ok=True)
+
     if not resources_dir.exists():
         logger.error(f"Resources directory {resources_dir} does not exist.")
         return None
