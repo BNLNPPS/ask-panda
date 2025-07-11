@@ -33,7 +33,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("error_analyzer.log"),
+        logging.FileHandler("tools.log"),
         logging.StreamHandler()
     ]
 )
