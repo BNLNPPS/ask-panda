@@ -60,7 +60,7 @@ from fastmcp import FastMCP
 # from langchain_huggingface import HuggingFaceEmbeddings
 from pathlib import Path
 from pydantic import BaseModel
-from typing import Dict, Optional  # For type hinting
+from typing import Optional  # For type hinting
 
 from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
 from tools.tools import get_vectorstore_manager
@@ -142,9 +142,8 @@ def check_server_health() -> int:
         if response.json().get("status") == "ok":
             logger.info("MCP server is running.")
             return EC_OK
-        else:
-            logger.warning("MCP server is not running.")
-            return EC_SERVERNOTRUNNING
+        logger.warning("MCP server is not running.")
+        return EC_SERVERNOTRUNNING
     except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout):
         logger.warning(f"Timeout while trying to connect to MCP server at {MCP_SERVER_URL}.")
         return EC_TIMEOUT
@@ -392,14 +391,14 @@ class PandaMCP(FastMCP):
         # Call appropriate LLM based on provided model
         if model == "anthropic":
             return await self._call_anthropic(prompt)
-        elif model == "openai":
+        if model == "openai":
             return await self._call_openai(prompt)
-        elif model == "llama":
+        if model == "llama":
             return await self._call_llama(prompt)
-        elif model == "gemini":
+        if model == "gemini":
             return await self._call_gemini(prompt)
-        else:
-            return f"Invalid model specified: '{model}'."
+
+        return f"Invalid model specified: '{model}'."
 
 
 class QuestionRequest(BaseModel):
@@ -416,14 +415,14 @@ class QuestionRequest(BaseModel):
 
 
 @app.get("/health")
-async def health_check() -> Dict[str, str]:
+async def health_check() -> dict[str, str]:
     """Simple health-check endpoint."""
     logger.debug("Health check complete.")
     return {"status": "ok"}
 
 
 @app.post("/rag_ask")
-async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
+async def rag_ask(request: QuestionRequest) -> dict[str, str]:
     """
     Handle POST requests to the `/rag_ask` endpoint.
 
