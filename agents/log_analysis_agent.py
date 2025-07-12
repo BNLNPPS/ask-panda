@@ -230,18 +230,19 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
     else:
         log_extracts = None
 
-    piloterrordiag = metadata_dictionary.get("piloterrordiag", None)
-    if not piloterrordiag:
+    errorcode = metadata_dictionary.get("piloterrorcode", None)
+    errordiag = metadata_dictionary.get("piloterrordiag", None)
+    if not errordiag:
         logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
         return ""
 
     question = ("You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, "
                 "and the pilot has detected an error.\n\n")
     if log_extracts:
-        question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
+        question += f"Analyze the given log extracts for the error: \"{errordiag}\".\n\n"
         question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
     else:
-        question += f"Analyze the error: \"{piloterrordiag}\".\n\n"
+        question += f"Analyze the error: \"{errordiag}\".\n\n"
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
@@ -251,7 +252,12 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. "
         "Separate your answer into the following sections: "
         "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't "
-        "oversimplify explanations), and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
+        "oversimplify explanations), and only show information that is relevant for users, "
+        "2) Explanations and suggestions for experts and/or system admins.\n")
+    question += (
+        f"\n\nNote: Please convert the explanation for error code {errorcode} into a Python dictionary, "
+        "using the error code as the key. The dictionary should have two main sections: one for non-expert "
+        "users and one for experts, each containing actionable suggestions and explanations.\n")
 
     return question
 
