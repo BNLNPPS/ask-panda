@@ -255,7 +255,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
         "oversimplify explanations), and only show information that is relevant for users, "
         "2) Explanations and suggestions for experts and/or system admins.\n")
     question += (
-        f"\n\nNote: Please convert the explanation for error code {errorcode} into a Python dictionary, "
+        f"\n\nNote: The explanation for error code {errorcode} should only be a Python dictionary, "
         "using the error code as the key. The dictionary should have two main sections: one for non-expert "
         "users and one for experts, each containing actionable suggestions and explanations.\n")
 
