@@ -29,6 +29,8 @@ import requests
 import sys
 
 from collections import deque
+
+# from docutils.nodes import description
 from fastmcp import FastMCP
 from time import sleep
 
@@ -230,7 +232,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
     else:
         log_extracts = None
 
-    errorcode = metadata_dictionary.get("piloterrorcode", None)
+#    errorcode = metadata_dictionary.get("piloterrorcode", None)
     errordiag = metadata_dictionary.get("piloterrordiag", None)
     if not errordiag:
         logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
@@ -238,26 +240,45 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
 
     question = ("You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, "
                 "and the pilot has detected an error.\n\n")
+
+    description = ""
     if log_extracts:
-        question += f"Analyze the given log extracts for the error: \"{errordiag}\".\n\n"
-        question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
+        description += f"Error diagnostics: \"{errordiag}\".\n\n"
+        description += f"The log extracts are as follows:\n\n\"{log_extracts}\""
     else:
-        question += f"Analyze the error: \"{errordiag}\".\n\n"
+        description += f"Error diagnostics: \"{errordiag}\".\n\n"
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
-        question += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
+        description += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
 
-    question += (
-        "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. "
-        "Separate your answer into the following sections: "
-        "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't "
-        "oversimplify explanations), and only show information that is relevant for users, "
-        "2) Explanations and suggestions for experts and/or system admins.\n")
-    question += (
-        f"\n\nNote: The explanation for error code {errorcode} should only be a Python dictionary, "
-        "using the error code as the key. The dictionary should have two main sections: one for non-expert "
-        "users and one for experts, each containing actionable suggestions and explanations.\n")
+    question += """
+    Please convert the following explanation for PanDA job error code 1221 into a Python dictionary.
+The dictionary should have the error code as the key (an integer), and its value should include the following fields:
+
+    "description": A short summary of the error in plain English.
+
+    "non_expert_guidance": A dictionary containing:
+
+        "problem": A plain-language explanation of the issue.
+
+        "possible_causes": A list of plausible reasons for this error.
+
+        "recommendations": A list of actionable steps a scientist or user should take.
+
+    "expert_guidance": A dictionary containing:
+
+        "analysis": A technical explanation of the root cause.
+
+        "investigation_steps": A list of diagnostic actions a system admin or expert should take.
+
+        "possible_scenarios": A dictionary with known edge cases or failure patterns, each with a short explanation.
+
+        "preventative_measures": A list of best practices to prevent this issue in the future.
+
+Return only a valid Python dictionary. Here's the error description:
+    """
+    question += f"\n\n{description}\n\n"
 
     return question
 
