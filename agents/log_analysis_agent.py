@@ -21,13 +21,13 @@
 """This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
+import ast
 import asyncio
 import logging
 import os
 import re
 import requests
 import sys
-
 from collections import deque
 
 # from docutils.nodes import description
@@ -254,6 +254,7 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
 
     question += """
     Please convert the following explanation for PanDA job error code 1221 into a Python dictionary.
+    Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
 The dictionary should have the error code as the key (an integer), and its value should include the following fields:
 
     "description": A short summary of the error in plain English.
@@ -317,6 +318,8 @@ def main():
                         help='Model to use (e.g., openai, anthropic, etc.)')
     parser.add_argument('--mode', type=str, required=True,
                         help='Mode to use (ML or contextual)')
+    parser.add_argument('--session-id', type=str, required=True,
+                        help='Session ID for the context memory')
     args = parser.parse_args()
 
     # Split the log files into a list
@@ -358,7 +361,26 @@ def main():
 
         # Ask the question to the LLM
         answer = ask(question, args.model)
-        print(f"Answer from {args.model.capitalize()} (via RAG):\n{answer}")
+        # filter away any markdown formatting from the answer
+        answer = re.sub(r'```python', '', answer)
+        print(f"Answer from {args.model.capitalize()}:\n{answer}")
+        logger.info(f"type={type(answer)}")
+        # Strip code block formatting
+        clean_code = re.sub(r"^```(?:python)?\n|\n```$", "", answer.strip())
+        logger.info(f"Cleaned code:\n{clean_code}")
+        # convert the answer to a Python dictionary
+        error_dict = ast.literal_eval(clean_code)
+        if not error_dict:
+            pass
+        # store the answer in the session memory
+        # ..
+
+        # convert the answer to a Python dictionary
+#        try:
+#            answer_dict = eval(answer)  # Use eval to convert the answer to a dictionary
+#            logger.info(f"Answer dictionary: {answer_dict}")
+#        except Exception as e:
+#            logger.error(f"Failed to convert the answer to a dictionary: {e}")
 
     elif args.mode.lower() == 'ml':
         # Use ML mode to analyze the log files
