@@ -9,10 +9,10 @@ langchain_community
 langchain-chroma
 langchain-huggingface
 langchain-openai
+numpy<2
 openai
 psutil
 requests
 sentence-transformers
 transformers
 uvicorn[standard]
-numpy<2
