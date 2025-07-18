@@ -1,11 +1,11 @@
 # Ask PanDA
 This project contains MCP powered tools for 1) an AI chatbot for static
-conversations and 2) an error analysis agent for PanDA jobs. The goal is to provide a simple and efficient 
+conversations and 2) an error analysis agent for PanDA jobs. The goal is to provide a simple and efficient
 way to interact with various AI models and analyze errors in PanDA jobs.
 
-For the AI chatbot, it is sufficient to use the agent.py and server.py files. The agent.py file contains the logic 
-for the agent, while the server.py file contains the logic for the server. The server.py file is a simple FastAPI 
-server that serves the agent.py file. The agent.py file contains the logic for the agent, which is a simple 
+For the AI chatbot, it is sufficient to use the agent.py and server.py files. The agent.py file contains the logic
+for the agent, while the server.py file contains the logic for the server. The server.py file is a simple FastAPI
+server that serves the agent.py file. The agent.py file contains the logic for the agent, which is a simple
 command line interface that allows you to interact with various AI models.
 
 Similarly, the error analysis agent is a simple command line interface that allows you to interact with various AI models
@@ -56,13 +56,19 @@ The update and usage is using thread locking, so the server will not crash if a 
 
 The server will write all log messages to the `ask_panda_server_log.txt` file in the current directory.
 
+A (random) session ID is used to keep track of the conversation, i.e. to enable context memory. The context memory is stored in an sqlite database.
+
 2. Run the Agent (example queries):
 ```
-python3 -m agents.document_query_agent "What is PanDA?" openai
-python3 -m agents.document_query_agent "How does the PanDA pilot work?" anthropic
-python3 -m agents.document_query_agent "What is the purpose of the PanDA server?" llama
-python3 -m agents.document_query_agent "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined)
-python3 -m agents.document_query_agent "Please list all of the PanDA pilot error codes" gemini  (demonstration of the limitations of the size of the context window)
+python3 -m agents.document_query_agent QUESTION MODEL SESSION_ID
+
+Examples:
+python3 -m agents.document_query_agent "What is PanDA?" openai 111
+- python3 -m agents.document_query_agent "I did not understand, please explain that better!" openai 111
+python3 -m agents.document_query_agent "How does the PanDA pilot work?" anthropic 222
+python3 -m agents.document_query_agent "What is the purpose of the PanDA server?" llama 333
+python3 -m agents.document_query_agent "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined) 444
+python3 -m agents.document_query_agent "Please list all of the PanDA pilot error codes" gemini 555 (demonstration of the limitations of the size of the context window)
 ```
 
 # Log Analysis Agent
@@ -71,15 +77,15 @@ python3 -m agents.document_query_agent "Please list all of the PanDA pilot error
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python3 -m agents.error_analyzer_agent [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
+python3 -m agents.log_analysis_agent [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
 ```
 **Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
 the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
-and build a context for the model. The script will then use the provided model to analyze the reason for the error. 
+and build a context for the model. The script will then use the provided model to analyze the reason for the error.
 
-**Note**: Due to the limited context window of the models, the agent will 
+**Note**: Due to the limited context window of the models, the agent will
 not be able to answer all of the questions. The last example can be used as a benchmark test.
-The agent will return a list of the error codes, but it will not be able to provide the full context of each error code. 
+The agent will return a list of the error codes, but it will not be able to provide the full context of each error code.
 This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
 
 **Note**: For now, use --log-files pilotlog.txt, --model openai or gemini, and --mode contextual. E.g. analyze a job that failed with pilot error code 1150, "Looping job killed by pilot":
@@ -96,7 +102,7 @@ The following pilot error codes have been verified to work with the error analys
 # Smart Reporting Agent
 
 The smart reporting agent is a tool that can be used to generate reports based on the PanDA job records. Currently,
-it downloads JSON files from the PanDA Monitoring Service that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours. 
+it downloads JSON files from the PanDA Monitoring Service that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours.
 The corresponding JSON files will be refreshed automatically, corresponding to the time period of the job records.
 
 Note: This is work in progress. The idea is that these reports can be used by other agents.
@@ -120,5 +126,5 @@ and can be inspected using the `vectorstore_manager.py` script.
 python3 -m tools.inspect_vectorstore --dump
 ```
 
-If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option, 
+If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option,
 the script will print the contents of the vector store in a human-readable form (also to stdout).
