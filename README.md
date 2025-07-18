@@ -102,7 +102,7 @@ The following pilot error codes have been verified to work with the error analys
 # Smart Reporting Agent
 
 The smart reporting agent is a tool that can be used to generate reports based on the PanDA job records. Currently,
-it downloads JSON files from the PanDA Monitoring Service that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours.
+it downloads JSON files from the PanDA Monitor that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours.
 The corresponding JSON files will be refreshed automatically, corresponding to the time period of the job records.
 
 Note: This is work in progress. The idea is that these reports can be used by other agents.
