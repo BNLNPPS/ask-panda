@@ -128,3 +128,12 @@ python3 -m tools.inspect_vectorstore --dump
 
 If the --dump option is used, the script will dump the contents of the vector store in raw form (to stdout). If used without this option,
 the script will print the contents of the vector store in a human-readable form (also to stdout).
+
+# Syncing your GitHub repository
+
+Before making a pull request, make sure that you are synced to the latest version.
+
+git remote -v
+git remote add upstream  https://github.com/BNLNPPS/ask-panda.git
+git fetch upstream
+git merge upstream/next
