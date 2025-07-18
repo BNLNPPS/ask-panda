@@ -133,7 +133,9 @@ the script will print the contents of the vector store in a human-readable form 
 
 Before making a pull request, make sure that you are synced to the latest version.
 
+```
 git remote -v
 git remote add upstream  https://github.com/BNLNPPS/ask-panda.git
 git fetch upstream
 git merge upstream/next
+```
