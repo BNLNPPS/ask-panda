@@ -30,6 +30,7 @@ from time import sleep
 
 from tools.errorcodes import EC_TIMEOUT
 from tools.https import download_data
+from tools.tools import reformat_errors
 from ask_panda_server import MCP_SERVER_URL, check_server_health
 
 logging.basicConfig(
@@ -98,11 +99,12 @@ def main():
         for key in error_data:
             filename = error_data[key]
             path = os.path.join(args.cache_dir, filename)
+            messy_path = os.path.join(args.cache_dir, filename.replace(".json", "_messy.json"))
             url = url_errors.replace("NNN", str(key))
 
             if not os.path.exists(path):
                 logger.info(f"Downloading {filename} from {url}")
-                exit_code, _ = download_data(url, filename=path)
+                exit_code, _ = download_data(url, filename=messy_path)
                 if exit_code != 0:
                     logger.error(f"Failed to download {filename}")
             else:
@@ -115,6 +117,14 @@ def main():
                     if exit_code != 0:
                         logger.error(f"Failed to download {filename}")
 
+            # Reformat the error data
+            if os.path.exists(messy_path):
+                _ = reformat_errors(messy_path, path)
+
+                # Remove the messy file
+                logger.info(f"Removing messy file: {messy_path}")
+                os.remove(messy_path)
+
         # Download the CRIC data once per 10 minutes
         # .. see Claude code
 
@@ -122,6 +132,7 @@ def main():
         logger.info(f"iteration #{iteration}")
         iteration += 1
         sleep(10)
+
 
 if __name__ == "__main__":
     main()

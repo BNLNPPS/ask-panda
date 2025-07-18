@@ -46,6 +46,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 class VectorStoreManager:
     """Class to manage Chroma-based vector store."""
 

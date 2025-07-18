@@ -21,15 +21,15 @@
 """This script is a simple command-line agent that interacts with a RAG (Retrieval-Augmented Generation) server."""
 
 import logging
-import os  # Added for environment variable access
+import os
 import requests
 import sys
-from json import JSONDecodeError  # Added for specific exception handling
+from json import JSONDecodeError
 from time import sleep
-# from fastmcp import FastMCP # Removed unused import
 
-from tools.errorcodes import EC_TIMEOUT
 from ask_panda_server import MCP_SERVER_URL, check_server_health
+from tools.context_memory import ContextMemory
+from tools.errorcodes import EC_TIMEOUT
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(
@@ -41,9 +41,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+memory = ContextMemory()
 
 
-def ask(question: str, model: str) -> str:
+def ask(question: str, model: str, session_id: str) -> str:
     """
     Send a question to the RAG server and retrieve the answer.
 
@@ -55,6 +56,7 @@ def ask(question: str, model: str) -> str:
         question (str): The question to ask the RAG server.
         model (str): The model to use for generating the answer
                      (e.g., 'openai', 'anthropic').
+        session_id (str): The session ID for tracking the conversation.
 
     Returns:
         str: The answer from the RAG server. If an error occurs during the
@@ -62,11 +64,24 @@ def ask(question: str, model: str) -> str:
              prefixed with "Error:" is returned detailing the issue.
     """
     server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
+
+    # Retrieve context
+    history = memory.get_history(session_id)
+
+    # Construct prompt
+    prompt = ""
+    for user_msg, agent_msg in history:
+        prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+    prompt += f"User: {question}\nAssistant:"
+
     try:
-        response = requests.post(server_url, json={"question": question, "model": model}, timeout=30)
+        response = requests.post(server_url, json={"question": prompt, "model": model}, timeout=30)
         if response.ok:
             try:
-                return response.json()["answer"]
+                # Store interaction
+                s = response.json()["answer"]
+                memory.store_turn(session_id, question, s)
+                return s
             except JSONDecodeError:  # Changed to use imported JSONDecodeError
                 return "Error: Could not decode JSON response from server."
             except KeyError:
@@ -86,6 +101,7 @@ def ask(question: str, model: str) -> str:
             return f"Error: Server returned status {response.status_code} - {response.text}"
     except requests.exceptions.RequestException as e:
         return f"Error: Network issue or server unreachable - {e}"
+
 
 def main() -> None:
     """
@@ -115,17 +131,18 @@ def main() -> None:
         logger.error("MCP server is not healthy. Exiting.")
         sys.exit(1)
 
-    if len(sys.argv) != 3:
-        logger.info("Usage: python document_query_agent.py \"<question>\" <model>")
+    if len(sys.argv) != 4:
+        logger.info("Usage: python document_query_agent.py \"<question>\" <model> <session-id>")
         sys.exit(1)
 
-    question, model = sys.argv[1], sys.argv[2]
-    answer = ask(question, model)
+    question, model, session_id = sys.argv[1], sys.argv[2], sys.argv[3]
+    answer = ask(question, model, session_id)
     if answer.startswith("Error:"):
         logger.info(answer, file=sys.stderr)
         sys.exit(1)
     else:
         logger.info(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
+
 
 if __name__ == "__main__":
     main()

@@ -53,14 +53,14 @@ import requests  # For checking MCP server health
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastmcp import FastMCP
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_openai import OpenAIEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_community.document_loaders import TextLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
 from pathlib import Path
 from pydantic import BaseModel
-from typing import Dict, Optional  # For type hinting
+from typing import Optional  # For type hinting
 
 from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
 from tools.tools import get_vectorstore_manager
@@ -117,11 +117,11 @@ if OPENAI_API_KEY:
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-#vectorstore: FAISS = FAISS.load_local(
+# vectorstore: FAISS = FAISS.load_local(
 #    "vectorstore",
 #    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
 #    allow_dangerous_deserialization=True,  # Safe if it's your own data
-#)
+# )
 
 
 def check_server_health() -> int:
@@ -142,9 +142,8 @@ def check_server_health() -> int:
         if response.json().get("status") == "ok":
             logger.info("MCP server is running.")
             return EC_OK
-        else:
-            logger.warning("MCP server is not running.")
-            return EC_SERVERNOTRUNNING
+        logger.warning("MCP server is not running.")
+        return EC_SERVERNOTRUNNING
     except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout):
         logger.warning(f"Timeout while trying to connect to MCP server at {MCP_SERVER_URL}.")
         return EC_TIMEOUT
@@ -154,6 +153,7 @@ def check_server_health() -> int:
     except Exception as e:
         logger.error(f"An unexpected error occurred while checking MCP server health: {e}")
         return EC_UNKNOWN_ERROR
+
 
 class PandaMCP(FastMCP):
     """
@@ -391,14 +391,14 @@ class PandaMCP(FastMCP):
         # Call appropriate LLM based on provided model
         if model == "anthropic":
             return await self._call_anthropic(prompt)
-        elif model == "openai":
+        if model == "openai":
             return await self._call_openai(prompt)
-        elif model == "llama":
+        if model == "llama":
             return await self._call_llama(prompt)
-        elif model == "gemini":
+        if model == "gemini":
             return await self._call_gemini(prompt)
-        else:
-            return f"Invalid model specified: '{model}'."
+
+        return f"Invalid model specified: '{model}'."
 
 
 class QuestionRequest(BaseModel):
@@ -415,14 +415,14 @@ class QuestionRequest(BaseModel):
 
 
 @app.get("/health")
-async def health_check() -> Dict[str, str]:
+async def health_check() -> dict[str, str]:
     """Simple health-check endpoint."""
     logger.debug("Health check complete.")
     return {"status": "ok"}
 
 
 @app.post("/rag_ask")
-async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
+async def rag_ask(request: QuestionRequest) -> dict[str, str]:
     """
     Handle POST requests to the `/rag_ask` endpoint.
 
@@ -445,4 +445,3 @@ async def rag_ask(request: QuestionRequest) -> Dict[str, str]:
 
     logger.info(f"Query processed using model '{request.model.lower()}'.")
     return {"answer": response_text}
-

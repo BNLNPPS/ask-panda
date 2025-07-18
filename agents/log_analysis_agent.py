@@ -21,14 +21,16 @@
 """This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
+import ast
 import asyncio
 import logging
 import os
 import re
 import requests
 import sys
-
 from collections import deque
+
+# from docutils.nodes import description
 from fastmcp import FastMCP
 from time import sleep
 
@@ -120,13 +122,13 @@ async def fetch_all_data(pandaid: int, log_files: list) -> tuple[int, dict or No
     # Fetch pilot error descriptions
     pilot_error_descriptions = read_json_file("cache/pilot_error_codes_and_descriptions.json")
     if not pilot_error_descriptions:
-        logger.warning(f"Error: Failed to read the pilot error descriptions.")
+        logger.warning("Error: Failed to read the pilot error descriptions.")
         return EC_UNKNOWN_ERROR, None, None
 
     # Fetch transform error descriptions
     transform_error_descriptions = read_json_file("cache/trf_error_codes_and_descriptions.json")
     if not transform_error_descriptions:
-        logger.warning(f"Error: Failed to read the transform error descriptions.")
+        logger.warning("Error: Failed to read the transform error descriptions.")
         return EC_UNKNOWN_ERROR, None, None
 
     # Extract relevant metadata from the JSON data
@@ -230,25 +232,54 @@ def formulate_question(output_file: str, metadata_dictionary: dict) -> str:
     else:
         log_extracts = None
 
-    piloterrordiag = metadata_dictionary.get("piloterrordiag", None)
-    if not piloterrordiag:
+#    errorcode = metadata_dictionary.get("piloterrorcode", None)
+    errordiag = metadata_dictionary.get("piloterrordiag", None)
+    if not errordiag:
         logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
         return ""
 
-    question = "You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, and the pilot has detected an error.\n\n"
+    question = ("You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, "
+                "and the pilot has detected an error.\n\n")
+
+    description = ""
     if log_extracts:
-        question += f"Analyze the given log extracts for the error: \"{piloterrordiag}\".\n\n"
-        question += f"The log extracts are as follows:\n\n\"{log_extracts}\""
+        description += f"Error diagnostics: \"{errordiag}\".\n\n"
+        description += f"The log extracts are as follows:\n\n\"{log_extracts}\""
     else:
-        question += f"Analyze the error: \"{piloterrordiag}\".\n\n"
+        description += f"Error diagnostics: \"{errordiag}\".\n\n"
 
     preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
     if preliminary_diagnosis:
-        question += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
+        description += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
 
-    question += (
-        "\n\nPlease provide a detailed analysis of the error and suggest possible solutions or next steps if possible. Separate your answer into the following sections: "
-        "1) Explanations and suggestions for non-expert users (for scientists and not for complete beginners, so don't oversimplify explanations), and only show information that is relevant for users, 2) Explanations and suggestions for experts and/or system admins\n")
+    question += """
+    Please convert the following explanation for PanDA job error code 1221 into a Python dictionary.
+    Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
+The dictionary should have the error code as the key (an integer), and its value should include the following fields:
+
+    "description": A short summary of the error in plain English.
+
+    "non_expert_guidance": A dictionary containing:
+
+        "problem": A plain-language explanation of the issue.
+
+        "possible_causes": A list of plausible reasons for this error.
+
+        "recommendations": A list of actionable steps a scientist or user should take.
+
+    "expert_guidance": A dictionary containing:
+
+        "analysis": A technical explanation of the root cause.
+
+        "investigation_steps": A list of diagnostic actions a system admin or expert should take.
+
+        "possible_scenarios": A dictionary with known edge cases or failure patterns, each with a short explanation.
+
+        "preventative_measures": A list of best practices to prevent this issue in the future.
+
+Return only a valid Python dictionary. Here's the error description:
+    """
+    question += f"\n\n{description}\n\n"
 
     return question
 
@@ -287,6 +318,8 @@ def main():
                         help='Model to use (e.g., openai, anthropic, etc.)')
     parser.add_argument('--mode', type=str, required=True,
                         help='Mode to use (ML or contextual)')
+    parser.add_argument('--session-id', type=str, required=True,
+                        help='Session ID for the context memory')
     args = parser.parse_args()
 
     # Split the log files into a list
@@ -328,7 +361,26 @@ def main():
 
         # Ask the question to the LLM
         answer = ask(question, args.model)
-        print(f"Answer from {args.model.capitalize()} (via RAG):\n{answer}")
+        # filter away any markdown formatting from the answer
+        answer = re.sub(r'```python', '', answer)
+        print(f"Answer from {args.model.capitalize()}:\n{answer}")
+        logger.info(f"type={type(answer)}")
+        # Strip code block formatting
+        clean_code = re.sub(r"^```(?:python)?\n|\n```$", "", answer.strip())
+        logger.info(f"Cleaned code:\n{clean_code}")
+        # convert the answer to a Python dictionary
+        error_dict = ast.literal_eval(clean_code)
+        if not error_dict:
+            pass
+        # store the answer in the session memory
+        # ..
+
+        # convert the answer to a Python dictionary
+#        try:
+#            answer_dict = eval(answer)  # Use eval to convert the answer to a dictionary
+#            logger.info(f"Answer dictionary: {answer_dict}")
+#        except Exception as e:
+#            logger.error(f"Failed to convert the answer to a dictionary: {e}")
 
     elif args.mode.lower() == 'ml':
         # Use ML mode to analyze the log files
@@ -337,8 +389,6 @@ def main():
         logger.error(f"Invalid mode specified: {args.mode}. Use 'ML' or 'contextual'.")
         sys.exit(1)
 
-    #answer = ask(question, model)
-    #print(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
 
 if __name__ == "__main__":
     main()
