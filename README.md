@@ -129,7 +129,7 @@ as a middle layer between the user, the other agents and the LLM.
 
 The selection agent is run as follows:
 ```
-python3 -m agents.selection_agent --question QUESTION --model openai [--session-id SESSION_ID] [--mode MODE]
+python3 -m agents.selection_agent --question QUESTION --model MODEL [--session-id SESSION_ID] [--mode MODE]
 ```
 where `QUESTION` is the question to be answered, `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama), and
 `SESSION_ID` and `MODE` are optional arguments. For details, see same arguments defined above.
