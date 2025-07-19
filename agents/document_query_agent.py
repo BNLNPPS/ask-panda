@@ -143,10 +143,6 @@ def main() -> None:
                         help='The model to use for generating the answer')
     args = parser.parse_args()
 
-    if len(sys.argv) != 4:
-        logger.info("Usage: python document_query_agent.py \"<question>\" <model> <session-id>")
-        sys.exit(1)
-
     answer = ask(args.question, args.model, args.session_id)
     if answer.startswith("Error:"):
         logger.info(answer, file=sys.stderr)
