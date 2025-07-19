@@ -118,6 +118,28 @@ The agent will abort when it sees that the MCP server is no longer running. The 
 
 Eventually, the agent will be launched automatically by the MCP server, but for now it needs to be run manually.
 
+# Selection Agent
+
+The selection agent is a tool that can be used to determine which agent to use for a given question. It is arguably better
+to implement multiple agents that are specialized for different tasks, rather than a single agent that tries to do everything.
+Also, a complication is to determine the correct prompt for different types of questions, e.g. whether the question is about PanDA jobs, number of
+running jobs, or general questions about PanDA, etc. One would be forced to implement complicated logic and parsing of the
+user's question. Instead, this agent uses an LLM to determine which agent to use for a given question, and therefore acts
+as a middle layer between the user, the other agents and the LLM.
+
+The selection agent is run as follows:
+```
+python3 -m agents.selection_agent --question QUESTION --model openai [--session-id SESSION_ID] [--mode MODE]
+```
+where `QUESTION` is the question to be answered, `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama), and
+`SESSION_ID` and `MODE` are optional arguments. For details, see same arguments defined above.
+
+When run, the agent determines which agent to use for the given question, calls that agent and returns the answer.
+
+NOTE: Currently, only the `document_query_agent` and `log_analysis_agent` are supported, but more agents can be added in the future.
+
+[As of now, the agent only gives the name of the agent to use, but does not call it automatically. This is a work in progress.]
+
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory

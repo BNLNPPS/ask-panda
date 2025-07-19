@@ -316,7 +316,7 @@ def main():
                         help='PandaID (integer)')
     parser.add_argument('--model', type=str, required=True,
                         help='Model to use (e.g., openai, anthropic, etc.)')
-    parser.add_argument('--mode', type=str, required=True,
+    parser.add_argument('--mode', type=str, required=False, default='contextual',
                         help='Mode to use (ML or contextual)')
     # parser.add_argument('--session-id', type=str, required=True,
     #                     help='Session ID for the context memory')
