@@ -60,16 +60,17 @@ A (random) session ID is used to keep track of the conversation, i.e. to enable 
 
 2. Run the Agent (example queries):
 ```
-python3 -m agents.document_query_agent QUESTION MODEL SESSION_ID
+python3 -m agents.document_query_agent --question=QUESTION --model=MODEL --session-id=SESSION_ID
 
 Examples:
-python3 -m agents.document_query_agent "What is PanDA?" openai 111
-- python3 -m agents.document_query_agent "I did not understand, please explain that better!" openai 111
-python3 -m agents.document_query_agent "How does the PanDA pilot work?" anthropic 222
-python3 -m agents.document_query_agent "What is the purpose of the PanDA server?" llama 333
-python3 -m agents.document_query_agent "What is the PanDA WMS?" gemini  (shows that PanDA WMS is not properly defined) 444
-python3 -m agents.document_query_agent "Please list all of the PanDA pilot error codes" gemini 555 (demonstration of the limitations of the size of the context window)
+python3 -m agents.document_query_agent  --question="What is PanDA?" --model=openai --session-id=111
+- python3 -m agents.document_query_agent  --question="I do not understand, please explain that better!" --model=openai --session-id=111
+python3 -m agents.document_query_agent  --question="How does the PanDA pilot work?" --model=anthropic --session-id=222
+python3 -m agents.document_query_agent  --question="What is the purpose of the PanDA server?" --model=llama --session-id=333
+python3 -m agents.document_query_agent  --question="What is the PanDA WMS?" --model=gemini --session-id=444 (shows that PanDA WMS is not properly defined)
+python3 -m agents.document_query_agent  --question="Please list all of the PanDA pilot error codes" --model=gemini --session-id=555 (demonstration of the limitations of the size of the context window)
 ```
+The agent returns the answer as a dictionary.
 
 # Log Analysis Agent
 

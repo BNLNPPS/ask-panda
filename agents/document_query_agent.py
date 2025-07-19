@@ -20,6 +20,7 @@
 
 """This script is a simple command-line agent that interacts with a RAG (Retrieval-Augmented Generation) server."""
 
+import argparse
 import logging
 import os
 import requests
@@ -131,17 +132,33 @@ def main() -> None:
         logger.error("MCP server is not healthy. Exiting.")
         sys.exit(1)
 
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Process some arguments.")
+
+    parser.add_argument('--session-id', type=str, required=True,
+                        help='Session ID for the context memory')
+    parser.add_argument('--question', type=str,
+                        help='The question to ask the RAG server')
+    parser.add_argument('--model', type=str,
+                        help='The model to use for generating the answer')
+    args = parser.parse_args()
+
     if len(sys.argv) != 4:
         logger.info("Usage: python document_query_agent.py \"<question>\" <model> <session-id>")
         sys.exit(1)
 
-    question, model, session_id = sys.argv[1], sys.argv[2], sys.argv[3]
-    answer = ask(question, model, session_id)
+    answer = ask(args.question, args.model, args.session_id)
     if answer.startswith("Error:"):
         logger.info(answer, file=sys.stderr)
         sys.exit(1)
     else:
-        logger.info(f"Answer from {model.capitalize()} (via RAG):\n{answer}")
+        answer_dict = {
+            "session_id": args.session_id,
+            "question": args.question,
+            "model": args.model,
+            "answer": answer
+        }
+        logger.info(f"Answer:\n{answer_dict}")
 
 
 if __name__ == "__main__":
