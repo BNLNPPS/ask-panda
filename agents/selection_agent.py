@@ -21,11 +21,14 @@
 import argparse
 import logging
 import os
+import re
 import requests
 import sys
 from json import JSONDecodeError
 from time import sleep
 
+from agents.document_query_agent import DocumentQueryAgent
+from agents.log_analysis_agent import LogAnalysisAgent
 from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.errorcodes import EC_TIMEOUT
 
@@ -113,20 +116,63 @@ Output only one of the categories: document, queue, task, log, or pilot.
             return f"Error: Network issue or server unreachable - {e}"
 
 
-def get_agents() -> dict:
+def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid: str or None, cache: str) -> dict:
     """
     Create and return a dictionary of agents for different categories.
 
+    Args:
+        model (str): The model to use for generating answers.
+        session_id (str or None): The session ID for the context memory.
+        pandaid (str or None): The PanDA ID for the job or task, if applicable.
+        taskid (str or None): The task ID for the job or task, if applicable.
+        cache (str): The location of the cache directory.
+
     Returns:
-        dict:
+        dict: A dictionary mapping agent categories to their respective agent classes.
     """
     return {
-        "document": "document_query_agent.py --question=QUESTION --model=MODEL --session-id=SESSION_ID",
-        "queue": "queue_query_agent.py --question=QUESTION --model=MODEL --session-id=SESSION_ID",
-        "task": "task_query_agent.py --question=QUESTION --model=MODEL --session-id=SESSION_ID",
-        "log_analyzer": "log_analysis_agent.py --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE",
-        "pilot_activity": "pilot_monitor_agent.py --question=QUESTION --model=MODEL --session-id=SESSION_ID"
+        "document": DocumentQueryAgent(model, session_id) if session_id else None,
+        "queue": None,
+        "task": None,
+        "log_analyzer": LogAnalysisAgent(model, pandaid, cache) if pandaid else None,
+        "pilot_activity": None
     }
+
+
+def extract_job_id(text: str) -> int or None:
+    """
+    Extract a job ID from the given text using a regular expression.
+
+    Args:
+        text: The text from which to extract the job ID.
+
+    Returns:
+        int or None: The extracted job ID as an integer, or None if no job ID is found.
+    """
+    pattern = r'\b(?:job|panda[\s_]?id)\s+(\d+)\b'
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+
+    return None
+
+
+def extract_task_id(text: str) -> int or None:
+    """
+    Extract a task ID from the given text using a regular expression.
+
+    Args:
+        text: The text from which to extract the task ID.
+
+    Returns:
+        int or None: The extracted task ID as an integer, or None if no task ID is found.
+    """
+    pattern = r'\b(?:task[\s_]?id|task)\s+(\d+)\b'
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+
+    return None
 
 
 def main() -> None:
@@ -166,11 +212,25 @@ def main() -> None:
                         help='The question to ask the RAG server')
     parser.add_argument('--model', type=str, required=True,
                         help='The model to use for generating the answer')
-    parser.add_argument('--pandaid', type=str, required=False,
-                        help='PanDA ID for the job or task, if applicable')
+    parser.add_argument('--cache', type=str, default="cache",
+                        help='Location of cache directory (default: cache)')
+
     args = parser.parse_args()
 
-    agents = get_agents()
+    # does the question contain a job or task id?
+    # use a regex to extract "job NNNNN" from args.question
+    pandaid = extract_job_id(args.question)
+    if pandaid is not None:
+        logger.info(f"Extracted PanDA ID: {pandaid}")
+    else:
+        logger.info("No PanDA ID found in the question.")
+    taskid = extract_task_id(args.question)
+    if taskid is not None:
+        logger.info(f"Extracted Task ID: {taskid}")
+    else:
+        logger.info("No Task ID found in the question.")
+
+    agents = get_agents(args.model, args.session_id, pandaid, taskid, args.cache)
     selection_agent = SelectionAgent(agents, args.model)
 
     response = selection_agent.answer(args.question)
