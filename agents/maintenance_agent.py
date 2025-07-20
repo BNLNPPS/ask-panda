@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("smart_reporting_agent.log"),
+        logging.FileHandler("maintenance_agent.log"),
         logging.StreamHandler()
     ]
 )

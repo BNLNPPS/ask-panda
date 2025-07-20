@@ -109,9 +109,10 @@ The following pilot error codes have been verified to work with the error analys
 1099, 1104, 1137, 1150, 1152, 1201, 1213, 1235, 1236, 1305, 1322, 1324, 1354, 1361, 1368.
 ```
 
-# Smart Reporting Agent
+# Maintenance Agent
 
-The smart reporting agent is a tool that can be used to generate reports based on the PanDA job records. Currently,
+The maintenance agent is a tool that can be used to run maintenance on the cache dir; including cleaning up outdated
+files, but also to generate reports based on the PanDA job records. Currently,
 it downloads JSON files from the PanDA Monitor that contains the error code information for jobs that ran in the last 24, 12, 6, 3 and 1 hours.
 The corresponding JSON files will be refreshed automatically, corresponding to the time period of the job records.
 
@@ -119,7 +120,7 @@ Note: This is work in progress. The idea is that these reports can be used by ot
 
 The agent is run as follows:
 ```
-python3 -m agents.smart_reporting_agent --pid PID --cache-dir CACHE_DIR
+python3 -m agents.maintenance_agent --pid PID --cache-dir CACHE_DIR
 ```
 where `PID` is the process id of the MCP server and `CACHE_DIR` is the directory where the JSON files will be stored.
 The agent will abort when it sees that the MCP server is no longer running. The cache directory will be created if it does not exist
