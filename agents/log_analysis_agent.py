@@ -81,7 +81,7 @@ class LogAnalysisAgent:
                 logger.error(f"Failed to create cache directory {self.cache}: {e}")
                 sys.exit(1)
 
-        path = os.path.join(self.cache, str(self.pandaid))
+        path = os.path.join(os.path.join(self.cache, "jobs"), str(self.pandaid))
         if not os.path.exists(path):
             logger.info(f"Creating directory for PandaID {self.pandaid} in cache.")
             try:
@@ -149,8 +149,9 @@ class LogAnalysisAgent:
         _file_dictionary = {}
 
         # Download metadata and pilot log concurrently
-        metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=self.cache))
-        pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=self.cache))
+        workdir = os.path.join(self.cache, "jobs")
+        metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir))
+        pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir))
 
         # Wait for both downloads to complete
         metadata_success, metadata_message = await metadata_task
