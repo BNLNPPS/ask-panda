@@ -249,6 +249,8 @@ def main() -> None:
         answer = agent.ask(question)
         logger.info(f"Answer:\n{answer}")
         return answer
+    else:
+        logger.warning("Not yet implemented")
     if agent is None:
         return "Sorry, I don’t have enough information to answer that kind of question."
 
