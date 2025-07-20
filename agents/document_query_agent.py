@@ -45,63 +45,88 @@ logger = logging.getLogger(__name__)
 memory = ContextMemory()
 
 
-def ask(question: str, model: str, session_id: str) -> str:
-    """
-    Send a question to the RAG server and retrieve the answer.
+class DocumentQueryAgent:
+    """A simple command-line agent that interacts with a RAG server to answer questions."""
+    def __init__(self, model: str, session_id: str) -> None:
+        """
+        Initialize the DocumentQueryAgent with a model and session ID.
 
-    The server URL is determined by the `RAG_SERVER_URL` environment
-    variable, defaulting to `"http://localhost:8000/rag_ask"` if not set.
-    The request to the server includes a 30-second timeout.
+        Args:
+            model (str): The model to use for generating the answer.
+            session_id (str): The session ID for tracking the conversation.
+        """
+        self.model = model  # e.g., OpenAI or Anthropic wrapper
+        self.session_id = session_id  # Session ID for tracking conversation
 
-    Args:
-        question (str): The question to ask the RAG server.
-        model (str): The model to use for generating the answer
-                     (e.g., 'openai', 'anthropic').
-        session_id (str): The session ID for tracking the conversation.
+    def ask(self, question: str) -> str:
+        """
+        Send a question to the RAG server and retrieve the answer.
 
-    Returns:
-        str: The answer from the RAG server. If an error occurs during the
-             request, or if the server responds with an error, a string
-             prefixed with "Error:" is returned detailing the issue.
-    """
-    server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
+        The server URL is determined by the `RAG_SERVER_URL` environment
+        variable, defaulting to `"http://localhost:8000/rag_ask"` if not set.
+        The request to the server includes a 30-second timeout.
 
-    # Retrieve context
-    history = memory.get_history(session_id)
+        Args:
+            question (str): The question to ask the RAG server.
+            model (str): The model to use for generating the answer
+                         (e.g., 'openai', 'anthropic').
+            session_id (str): The session ID for tracking the conversation.
 
-    # Construct prompt
-    prompt = ""
-    for user_msg, agent_msg in history:
-        prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
-    prompt += f"User: {question}\nAssistant:"
+        Returns:
+            str: The answer from the RAG server. If an error occurs during the
+                 request, or if the server responds with an error, a string
+                 prefixed with "Error:" is returned detailing the issue.
+        """
+        server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
 
-    try:
-        response = requests.post(server_url, json={"question": prompt, "model": model}, timeout=30)
-        if response.ok:
-            try:
-                # Store interaction
-                s = response.json()["answer"]
-                memory.store_turn(session_id, question, s)
-                return s
-            except JSONDecodeError:  # Changed to use imported JSONDecodeError
-                return "Error: Could not decode JSON response from server."
-            except KeyError:
-                return "Error: 'answer' key missing in server response."
-        else:
-            try:
-                # Attempt to parse JSON for detailed error message
-                error_data = response.json()
-                if isinstance(error_data, dict) and "detail" in error_data:
-                    return f"Error from server: {error_data['detail']}"
-                # Fallback if "detail" key is not found or JSON is not a dict
+        # Retrieve context
+        history = memory.get_history(self.session_id)
+
+        # Construct prompt
+        prompt = ""
+        for user_msg, agent_msg in history:
+            prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+        prompt += f"User: {question}\nAssistant:"
+
+        try:
+            response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=30)
+            if response.ok:
+                try:
+                    # Store interaction
+                    answer = response.json()["answer"]
+                    if answer.startswith("Error:"):
+                        logger.info(answer, file=sys.stderr)
+                        return ""
+
+                    memory.store_turn(self.session_id, question, answer)
+
+                    # convert to dictionary before returning
+                    answer = {
+                        "session_id": self.session_id,
+                        "question": question,
+                        "model": self.model,
+                        "answer": answer
+                    }
+                    return answer
+                except JSONDecodeError:  # Changed to use imported JSONDecodeError
+                    return "Error: Could not decode JSON response from server."
+                except KeyError:
+                    return "Error: 'answer' key missing in server response."
+            else:
+                try:
+                    # Attempt to parse JSON for detailed error message
+                    error_data = response.json()
+                    if isinstance(error_data, dict) and "detail" in error_data:
+                        return f"Error from server: {error_data['detail']}"
+                    # Fallback if "detail" key is not found or JSON is not a dict
+                    return f"Error: Server returned status {response.status_code} - {response.text}"
+                except JSONDecodeError:  # Changed to use imported JSONDecodeError
+                    # Fall through to the generic error message if JSON parsing fails
+                    pass
+                # Fallback if JSON parsing fails or "detail" is not in a dict
                 return f"Error: Server returned status {response.status_code} - {response.text}"
-            except JSONDecodeError:  # Changed to use imported JSONDecodeError
-                # Fall through to the generic error message if JSON parsing fails
-                pass
-            # Fallback if JSON parsing fails or "detail" is not in a dict
-            return f"Error: Server returned status {response.status_code} - {response.text}"
-    except requests.exceptions.RequestException as e:
-        return f"Error: Network issue or server unreachable - {e}"
+        except requests.exceptions.RequestException as e:
+            return f"Error: Network issue or server unreachable - {e}"
 
 
 def main() -> None:
@@ -143,18 +168,9 @@ def main() -> None:
                         help='The model to use for generating the answer')
     args = parser.parse_args()
 
-    answer = ask(args.question, args.model, args.session_id)
-    if answer.startswith("Error:"):
-        logger.info(answer, file=sys.stderr)
-        sys.exit(1)
-    else:
-        answer_dict = {
-            "session_id": args.session_id,
-            "question": args.question,
-            "model": args.model,
-            "answer": answer
-        }
-        logger.info(f"Answer:\n{answer_dict}")
+    agent = DocumentQueryAgent(args.model, args.session_id)
+    answer = agent.ask(args.question)
+    logger.info(f"Answer:\n{answer}")
 
 
 if __name__ == "__main__":

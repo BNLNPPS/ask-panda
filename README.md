@@ -70,6 +70,17 @@ python3 -m agents.document_query_agent  --question="What is the purpose of the P
 python3 -m agents.document_query_agent  --question="What is the PanDA WMS?" --model=gemini --session-id=444 (shows that PanDA WMS is not properly defined)
 python3 -m agents.document_query_agent  --question="Please list all of the PanDA pilot error codes" --model=gemini --session-id=555 (demonstration of the limitations of the size of the context window)
 ```
+
+The agent can also be imported and used in Python code as follows:
+```python
+from agents.document_query_agent import DocumentQueryAgent
+agent = DocumentQueryAgent(model='openai', session_id='12345')
+answer = agent.query("What is PanDA?")
+print(answer)
+answer = agent.query("Please give more details")
+print(answer)
+```
+
 The agent returns the answer as a dictionary.
 
 # Log Analysis Agent
