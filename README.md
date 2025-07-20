@@ -89,10 +89,10 @@ The agent returns the answer as a dictionary.
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python3 -m agents.log_analysis_agent [-h] --log-files LOG_FILES --pandaid PANDAID --model MODEL --mode MODE
+python3 -m agents.log_analysis_agent [-h] --pandaid PANDAID --model MODEL [--log-file LOG_FILE]
 ```
-**Note**: The error analysis agent will use the provided PanDA ID to fetch one or more log files from
-the given PanDA job. The script will then extract the error codes from the log files, along with relevant/nearby log message
+**Note**: The error analysis agent will use the provided PanDA ID to fetch a log files from
+the given PanDA job. The script will then extract the error codes from the log file, along with relevant/nearby log message
 and build a context for the model. The script will then use the provided model to analyze the reason for the error.
 
 **Note**: Due to the limited context window of the models, the agent will
@@ -100,10 +100,8 @@ not be able to answer all of the questions. The last example can be used as a be
 The agent will return a list of the error codes, but it will not be able to provide the full context of each error code.
 This is a limitation of the current implementation and is not a reflection of the capabilities of the models.
 
-**Note**: For now, use --log-files pilotlog.txt, --model openai or gemini, and --mode contextual. E.g. analyze a job that failed with pilot error code 1150, "Looping job killed by pilot":
-
 ```
-python3 -m agents.log_analysis_agent --pandaid 6681623402 --log-files pilotlog.txt --model gemini --mode contextual
+python3 -m agents.log_analysis_agent --pandaid 6681623402 --model gemini --log-file pilotlog.txt
 ```
 
 The following pilot error codes have been verified to work with the error analysis agent:

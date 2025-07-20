@@ -47,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
+async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
     """
     Fetches a given file from PanDA.
 
@@ -56,10 +56,17 @@ async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False
         filename (str): The name of the file to fetch.
         jsondata (bool): If True, return a JSON string for the job.
         url (str, optional): If provided, use this URL instead of constructing one.
+        workdir (str): The directory where the file will be downloaded. Defaults to "cache".
+
     Returns:
         str or None: The name of the downloaded file.
         exit_code (int): The exit code indicating the status of the operation.
     """
+    path = os.path.join(os.path.join(workdir, str(panda_id)), filename)
+    if os.path.exists(path):
+        logger.info(f"File {filename} for PandaID {panda_id} already exists in {path}.")
+        return EC_OK, path
+
     if not url:
         url = (
             f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
@@ -69,7 +76,7 @@ async def fetch_data(panda_id: int, filename: str = None, jsondata: bool = False
     logger.info(f"Downloading file from: {url}")
 
     # Use the download_data function to fetch the file - it will return an exit code and the filename
-    exit_code, response = download_data(url, prefix=filename)
+    exit_code, response = download_data(url, filename=path)
     if exit_code == EC_NOTFOUND:
         logger.error(f"File not found for PandaID {panda_id} with filename {filename}.")
         return exit_code, None
