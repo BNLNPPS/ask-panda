@@ -233,8 +233,26 @@ def main() -> None:
     agents = get_agents(args.model, args.session_id, pandaid, taskid, args.cache)
     selection_agent = SelectionAgent(agents, args.model)
 
-    response = selection_agent.answer(args.question)
-    logger.info(response)
+    category = selection_agent.answer(args.question)
+    agent = agents.get(category)
+    logger.info(f"Selected agent category: {category}")
+    if category == "document":
+        logger.info(f"Selected agent category: {category} (DocumentQueryAgent)")
+        answer = agent.ask(args.question)
+        logger.info(f"Answer:\n{answer}")
+        return answer
+    elif category == "log_analyzer":
+        logger.info(f"Selected agent category: {category} (LogAnalysisAgent)")
+        if pandaid is None:
+            return "Sorry, I need a PanDA ID to answer questions about job logs."
+        question = agent.generate_question("pilotlog.txt")
+        answer = agent.ask(question)
+        logger.info(f"Answer:\n{answer}")
+        return answer
+    if agent is None:
+        return "Sorry, I don’t have enough information to answer that kind of question."
+
+    return {'error': 'Sorry, I don’t have enough information to answer that kind of question.'}
 
 
 if __name__ == "__main__":
