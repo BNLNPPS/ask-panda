@@ -29,6 +29,7 @@ from time import sleep
 
 from agents.document_query_agent import DocumentQueryAgent
 from agents.log_analysis_agent import LogAnalysisAgent
+from agents.task_status_agent import TaskStatusAgent
 from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.errorcodes import EC_TIMEOUT
 
@@ -135,7 +136,7 @@ def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid
     return {
         "document": DocumentQueryAgent(model, session_id) if session_id else None,
         "queue": None,
-        "task": None,
+        "task": TaskStatusAgent(model, session_id, taskid, cache) if session_id and taskid else None,
         "log_analyzer": LogAnalysisAgent(model, pandaid, cache) if pandaid else None,
         "pilot_activity": None
     }
