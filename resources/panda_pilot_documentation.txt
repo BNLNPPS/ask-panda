@@ -1,0 +1,1724 @@
+### Overview
+  * [Introduction](Home)
+  * [Pilot Architecture](Pilot-architecture)
+  * [Pilot Workflows](Pilot-workflows)
+    * [Standard Workflow](Standard-workflow)
+    * [HPC Workflow](HPC-workflow)
+  * [Event service](Event-service)
+  * [Metadata](Metadata)
+  * [Direct Access](Direct-access)
+  * [Signal Handling](Signal-handling)
+  * [Error Codes](Error-codes)
+  * [Containers](Containers)
+  * [Special Algorithms](Special-Algorithms-and-Functionalities)
+  * Configuration
+    * [Environment variables](Pilot-env)
+    * [Input options](Pilot-options)
+    * [Configuration file](Pilot-configuration)
+    * [Debug mode](Debug-mode)
+    * [Dev pilot](Dev-pilot)
+    * [Rucio client](Rucio-client)
+  * [Timing Measurements](Timing-measurements)
+  * [Copy Tools](Copy-tools)
+  * [Fallback Mechanism in Unified PanDA Queues](Fallback-Mechanism-in-Unified-PanDA-Queues)
+  * [Pilot release procedure](Pilot-release-procedure)
+
+### Developer pages
+  * [Job Object](Job-object)
+  * [Pilot APIs](Pilot-APIs)
+  * [Exceptions](Exceptions)
+  * [Rucio Traces](Rucio-traces)
+  * [Python](Python)
+  * [Xcache](Xcache)
+  * [Queuedata](Queuedata)
+  * [Utility Commands](Utility-commands)
+  * [Internal Threads](Internal-threads)
+  * [Real-Time Logging](Real-time-logging)
+
+### Related links
+  * [More Information](More-information)
+## Introduction
+
+The pilot has the ability to execute the payload within a singularity/apptainer container using two different methods; using 1) ALRB or 2) raw singularity. Currently, ALRB is the preferred method in ATLAS, but it can be set in the Pilot default config file. Details can be found in the sections below.
+
+## ALRB
+
+The preferred container setup method in ATLAS is using ALRB;
+```
+atlasLocalSetup.sh -c <containter_path>
+```
+
+The pilot sets up the environmental variable <code>thePlatform</code>, expected by the setup script, but also added as the value for <code>container_path</code>. For user jobs, <code>thePlatform</code> is set to <code>job.alrbuserplatform</code> (extracted from platform/cmtconfig in the job definition, corresponding to the <code>$ALRB_USER_PLATFORM</code> value). If the job definition for a user job contains <code>--containerImage</code>, the corresponding value will be used as the <code>container_path</code> value, unless the ALRB user platform is defined. For production jobs, <code>thePlatform</code> is set to the cmtconfig/platform value from the job definition.
+
+If container options are specified in queuedata, the pilot adds them as the value for the environmental variable <code>ALRB_CONT_CMDOPTS</code>.
+
+### Example
+
+In practice, to get around the piping problem (too many quote signs) the pilot is first writing the payload command to be executed within the container to a file, <code>container_script.sh</code>, and refers to it using the <code>ALRB_CONT_RUNPAYLOAD</code> environment variable which is known to the <code>atlasLocalSetup</code> script. A concrete example is given below.
+
+```
+export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+export thePlatform="x86_64-slc6-gcc49-opt";
+export ALRB_CONT_CMDOPTS="$ALRB_CONT_CMDOPTS -C";
+export ALRB_CONT_RUNPAYLOAD='. /srv/container_script.sh';
+source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c $thePlatform
+```
+
+## Raw singularity
+
+For using direct/raw singularity, the pilot builds the command like so
+
+```
+cmd = "export workdir=" + workdir + "; singularity --verbose exec " + singularity_options + " " + image_path + \
+                  " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
+```
+
+where the <code>workdir</code> is the working directory, <code>singularity_options</code> is taken from the <code>container_options</code> field in queuedata (expected to contain -B, pilot always adds <code>/cvmfs,${workdir},/home</code>), and <code>image_name</code> is taken from the <code>--containerImage</code> value in the job definition.
+
+## CRIC PanDA queue fields
+
+| Field name        | Typical value                                   | Meaning                                              |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------- |
+| container_options | -B /cvmfs,/scratch,/etc/grid-security --contain | Option to be added to raw "singularity exec" command |
+| container_type    | singularity:pilot | Container name and the name of the component that should set it up (pilot or wrapper). Pilot can handle strings like 'singularity:pilot;docker:wrapper'. If middleware is to be containerised, add 'container:middleware' (;-separated).|
+
+## Pilot default config parameters
+
+```
+# Container parameters
+
+[Container]
+
+# Master parameter
+# Is the pilot allowed to use containers? If False, then any database settings are ignored
+allow_container: False
+
+# Name of middleware image (to be revised)
+# This image is used if middleware is not found locally on the worker node. Middleware is expected to be present
+# in the container image
+middleware_container: middleware.img
+
+# The setup type can be either ALRB or (explicit) singularity
+setup_type: ALRB
+```
+
+The Pilot is capable to use externally defined copy tools or available backend API for file transfers.
+
+The logic implementing file transfer operation for `stage-in` and `stage-out` modes using corresponding library or external tool is isolated into dedicated Pilot [copytool](../tree/master/pilot/copytool) module.
+
+Each copytool module relies on following settings to configure and customize top Staging workflow (implemented in [Data API](../wiki/Pilot-APIs#data-api)) for file transfer operations:
+
+| parameter| type |default value| description
+| ---------|:--:|:--:|:--|
+|`allowed_schemas`|list| _any enabled for PandaQueue_| a prioritized list of supported schemas for transfers by given copytool
+|`require_replicas`|boolean|False|indicates if given copytool requires input replicas to be resolved first from `Rucio` before `stage-in`
+|`require_input_protocols`|boolean|False|indicates if given copytool requires input protocols and manual generation of input replicas for `stage-in`
+|`require_protocols`|boolean|**True**| indicates if given copytool requires protocols to be resolved first for `stage-out`
+|`check_availablespace`|boolean|**True**|indicates whether space check should be applied before `stage-in` transfers using given copytool
+|`resolve_surl`|handler|`StagingClient.resolve_surl`|Get final destination SURL for file to be transferred. Can be customized at the level of specific copytool
+|`resolve_replica`|handler|`StageInClient.resolve_replica`|Resolve input replica (matched by `domain`) first according to `primary_schemas`, if not found then look up within `allowed_schemas`. Can be customized at the level of specific copytool
+
+In addition to these settings, each copytool module must implement following interface functions:
+
+|function signature|arguments|description
+|---------|--|--|
+|is_valid_for_copy_in(files)| `files`: list of input `FileSpec` entries | Check if passed `files` list is valid (allowed) for `stage-in` operation. Typically returns `True`
+|is_valid_for_copy_out(files)|`files`: list of output `FileSpec` entries |Check if passed `files` list is valid (allowed) for `stage-out` operation. Typically returns `True`
+|copy_in(files, **kwargs)|<ul><li>`files`: list of `FileSpec` entries</li><li>`kwargs`: extra arguments passed by top workflow</li></ul>| Download (stage-in) given `files` using copytool related implementation. Copytool should update corresponding state fields of `FileSpec` object (status, status_code)
+|copy_out(files, **kwargs)|<ul><li>`files`: list of `FileSpec` entries</li><li>`kwargs`: extra arguments passed by top workflow</li></ul>| Upload (stage-out) given `files` using copytool related implementation. Copytool should update corresponding state fields of `FileSpec` object (status, status_code)
+
+The current range of supported copy tools is described below.
+
+| Copy tool |Require replicas<br> (stage-in)| Require input protocols<br> (stage-in)| Require protocols <br> (stage-out)| Check space<br>(stage-in) | Allowed schemas | description
+| ----------|:--:|:--:|:--:|:--:| ----- |:--|
+| [`gfal`](../tree/master/pilot/copytool/gfal.py) or `gfal-copy`|:heavy_check_mark:|:x:|:heavy_check_mark:|:heavy_check_mark:|`['srm', 'gsiftp', 'https', 'davs', 'root']` | GFAL2 tool (`gfal-copy` command)
+| [`gs`](../tree/master/pilot/copytool/gs.py)|:x:|:heavy_check_mark:|:heavy_check_mark:|:heavy_check_mark:| `['gs', 'srm', 'gsiftp', 'https', 'davs', 'root']` | Google Cloud Storage (`google.cloud` API)
+| [`lsm`](../tree/master/pilot/copytool/lsm.py)|:x:|:x:|:heavy_check_mark:|:heavy_check_mark:| `['srm', 'gsiftp', 'root']` | Local site mover (`lsm-get`, `lsm-put` commands)
+| [`mv`](../tree/master/pilot/copytool/mv.py)|:x:|:x:|:heavy_check_mark:|:x:| _any_ | Move file using filesystem commands (`ln -s` for stage-in, `mv` for stage-out)
+| [`objectstore`](../tree/master/pilot/copytool/objectstore.py)|:x:|:heavy_check_mark:|:heavy_check_mark:|:heavy_check_mark:| `['srm', 'gsiftp', 'https', 'davs', 'root', 's3', 's3+rucio']` | Transfer files to OS storage using `Rucio` CLI (`rucio download` for stage-in, `rucio upload` for stage-out)
+| [`rucio`](../tree/master/pilot/copytool/rucio.py)|:heavy_check_mark:|:x:|:x:|:heavy_check_mark:| _any_ | Transfer files to RSE using `Rucio` python API (`rucio.client.downloadclient`, `rucio.client.uploadclient`)
+| [`s3`](../tree/master/pilot/copytool/s3.py)|:x:|:heavy_check_mark:|:heavy_check_mark:|:heavy_check_mark:| `['srm', 'gsiftp', 'https', 'davs', 'root', 's3', 's3+rucio']` | Transfer files to Amazon Cloud Object Storage (S3 bucket) using `boto3` python AWS API
+| [`xrdcp`](../tree/master/pilot/copytool/xrdcp.py)|:heavy_check_mark:|:x:|:heavy_check_mark:|:heavy_check_mark:| `['root']` | Transfer files using `xrdcp` command
+In debug mode, the pilot will print out (much) more information. This mode can be activated with the -d pilot option. Simplest is to have Harvester set it by adding --debug to pilot_args in CRIC for the relevant queue (select "Add Param" in the "Associated Params" section and add value "--debug" to the pilot_args parameter).To use a development version of the pilot on a test queue, one needs to add, or update, the _pilot_url_ parameter in the "Associated Params"-section on a queue page in CRIC. By convention, the tarball of a dev pilot is typically named pilot3-A.B.C.D.tar.gz (where the A.B.C.D are the version numbers).Direct Access refers to the ability to skip stage-in and refer the opening of the file in question to the payload, which accesses it directly from the storage. Details can be found in the [Pilot wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/DirectAccess). When detecting a fatal problem, the Pilot assigns an error code and informs the server. Aside from the numerical code itself, it also reports the error meaning and a more detailed error diagnostics.
+
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| Error code | Acronym                        | Meaning                      | Notes                                                         |
++============+================================+==============================+===============================================================+
+| 1008       | GENERALERROR                   | General pilot error,         |                                                               |
+|            |                                | consult batch log            |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1098       | NOLOCALSPACE                   | Not enough local space       | Error code is set e.g. by job monitoring,                     |
+|            |                                |                              | also if copytool command fails (if "No space                  |
+|            |                                |                              | left on device" is found in command output)                   |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1099       | STAGEINFAILED                  | Failed to stage-in file      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1100       | REPLICANOTFOUND                | The rucio API function       |                                                               |
+|            |                                | list_replicas() did not      |                                                               |
+|            |                                | return any replicas. Check   |                                                               |
+|            |                                | log for details.             |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1103       | NOSUCHFILE                     | No such file or directory    | Error thrown by open_file() function. Also set if copytool    |
+|            |                                |                              | fails and "No such file or directory" is found in output      |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1104       | USERDIRTOOLARGE                | User work directory too large| The error is set if the user work directory exceeds the       |
+|            |                                |                              | maximum allowed limit, as defined by schedconfig.maxwdir      |
+|            |                                |                              | (default: 14 GB)                                              |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1106       | STDOUTTOOBIG                   | Payload log or stdout file   | Set if stdout exceeds maximum allowed limit of 2 GB, set in   |
+|            |                                | too big                      | the Pilot's default config file                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1110       | SETUPFAILURE                   | Failed during payload setup  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1115       | NFSSQLITE                      | NFS SQLite locking problems  | Pilot identifies this error by doing a grep on the strings    |
+|            |                                |                              | "prepare 5 database is locked" and "Error SQLiteStatement" in |
+|            |                                |                              | in the payload stdout                                         |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1116       | QUEUEDATA                      | Pilot could not download     |                                                               |
+|            |                                | queuedata                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1117       | QUEUEDATANOTOK                 | Pilot found non-valid        |                                                               |
+|            |                                | queuedata                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1124       | OUTPUTFILETOOLARGE             | Output file too large        |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1133       | NOSTORAGE                      | Fetching default storage     |                                                               |
+|            |                                | failed: no activity related  |                                                               |
+|            |                                | storage defined              |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1137       | STAGEOUTFAILED                 | Failed to stage-out file     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1141       | PUTMD5MISMATCH                 | md5sum mismatch on output    | Error acronym should be renamed                               |
+|            |                                | file                         |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1143       | CHMODTRF                       | Failed to chmod trf          | After downloading a trf, the pilot tries to do a chmod 0755 on|
+|            |                                |                              | it. If this fails, the pilot will set this error              |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1144       | PANDAKILL                      | This job was killed by panda |                                                               |
+|            |                                | server                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1145       | GETMD5MISMATCH                 | md5sum mismatch on input file| Error acronym should be renamed                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1149       | TRFDOWNLOADFAILURE             | Transform could not be       |                                                               |
+|            |                                | downloaded                   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1150       | LOOPINGJOB                     | Looping job killed by pilot  | The pilot will kill the payload (or stop stage-in/out) if     |
+|            |                                |                              | there is no activity (i.e. files touched in the work directory|
+|            |                                |                              | or if the file transfer is stuck) within the allowed time. The|
+|            |                                |                              | default looping job time limit is 12*3600 s for production    |
+|            |                                |                              | jobs and 3*3600 s for user analysis jobs. The limit can be    |
+|            |                                |                              | overridden in the pilot's config file (or set by the user     |
+|            |                                |                              | using the maxCPUCount variable)                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1151       | STAGEINTIMEOUT                 | File transfer timed out      | Currently only identified for rucio file transfer (unless     |
+|            |                                | during stage-in              | "Operation timed out" is in stderr)                           |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1152       | STAGEOUTTIMEOUT                | File transfer timed out      | Currently only identified for rucio file transfer (unless     |
+|            |                                | during stage-out             | "Operation timed out" is in stderr)                           |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1163       | NOPROXY                        | Grid proxy not valid         | Set if grid-proxy-info fails or if "Could not establish       |
+|            |                                |                              | context" is found in copytool command output                  |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1165       | MISSINGOUTPUTFILE              | Local output file is missing |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1168       | SIZETOOLARGE                   | Total file size too large    | Before stage-in, the pilot verifies that the sum of the input |
+|            |                                |                              | file sizes does not exceed maxwdir (set in schedconfig or in  |
+|            |                                |                              | pilot config file). Any files that are to be accessed         |
+|            |                                |                              | directly/remotely are excluded                                |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1171       | GETADMISMATCH                  | adler32 mismatch on input    | Error acronym should be renamed                               |
+|            |                                | file                         |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1172       | PUTADMISMATCH                  | adler32 mismatch on output   | Error acronym should be renamed                               |
+|            |                                | file                         |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1177       | NOVOMSPROXY                    | Voms proxy not valid         | Set if arcproxy fails                                         |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1180       | GETGLOBUSSYSERR                | Globus system error during   | Pilot identifies this error if "globes_xio:" is found in      |
+|            |                                | stage-in                     | command output                                                |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1181       | PUTGLOBUSSYSERR                | Globus system error during   | Pilot identifies this error if "globes_xio:" is found in      |
+|            |                                | stage-out                    | command output                                                |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1186       | NOSOFTWAREDIR                  | Software directory does not  |                                                               |
+|            |                                | exist                        |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1187       | NOPAYLOADMETADATA              | Payload metadata does not    | This error can happen due to previous uncaught error, leading |
+|            |                                | exist                        | to missing metadata, i.e. the error label can be misleading   |
+|            |                                |                              | (when discovered, pilot is usually patched)                   |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1190       | LFNTOOLONG                     | LFN too long (exceeding limit| When validating a job definition, before executing the        |
+|            |                                | of 255 characters)           | payload, the Pilot makes sure that no output file has an LFN  |
+|            |                                |                              | that is longer than 255 characters (which is not supported by |
+|            |                                |                              | the DDM system)                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1191       | ZEROFILESIZE                   | File size cannot be zero     | Before executing the stage-out command, the Pilot verifies    |
+|            |                                |                              | that the size of the file is not zero (which will not be      |
+|            |                                |                              | accepted by any storage system)                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1199       | MKDIR                          | Failed to create local       |                                                               |
+|            |                                | directory                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1200       | KILLSIGNAL                     | Job terminated by unknown    |                                                               |
+|            |                                | kill signal                  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1201       | SIGTERM                        | Job killed by signal: SIGTERM|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1202       | SIGQUIT                        | Job killed by signal: SIGQUIT|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1203       | SIGSEGV                        | Job killed by signal: SIGSEGV|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1204       | SIGXCPU                        | Job killed by signal: SIGXCPU|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1205       | USERKILL                       | Job killed by user           | Reserved error code for user defined kill instructions.       |
+|            |                                |                              | Currently not implemented                                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1206       | SIGBUS                         | Job killed by signal: SIGBUS |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1207       | SIGUSR1                        | Job killed by signal: SIGUSR1|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1211       | MISSINGINSTALLATION            | Missing installation         | Assigned error code if the payload fails to execute the       |
+|            |                                |                              | transform                                                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1212       | PAYLOADOUTOFMEMORY             | Payload ran out of memory    | Assigned error code if the pilot finds the string "FATAL out  |
+|            |                                |                              | of memory: taking the application down" in the stderr and     |
+|            |                                |                              | "St9bad_alloc", "std::bad_alloc" in the stdout                |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1213       | REACHEDMAXTIME                 | Reached batch system time    | Pilot aborts automatically when 10 minutes remain of the      |
+|            |                                | limit                        | maximum allowed running time, as set by 1) schedconfig,maxtime|
+|            |                                |                              | or 2) Pilot option -l <maxtime> (both values are in seconds)  |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1220       | UNKNOWNPAYLOADFAILURE          | Job failed due to unknown    |                                                               |
+|            |                                | reason (consult log file)    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1221       | FILEEXISTS                     | File already exists          | Error code is set if "File exists", "SRM_FILE_BUSY" or "file  |
+|            |                                |                              | already exists" is found in copytool command output           |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1223       | BADALLOC                       | Transform failed due to      | Assigned error code if the pilot finds "badalloc" among the   |
+|            |                                | bad_alloc                    | job report errors                                             |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1224       | ESRECOVERABLE                  | Event service: recoverable   |                                                               |
+|            |                                | error                        |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1228       | ESFATAL                        | Event service: fatal error   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1234       | EXECUTEDCLONEJOB               | Clone job is already executed|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1235       | PAYLOADEXCEEDMAXMEM            | Payload exceeded maximum     |                                                               |
+|            |                                | memory                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1236       | KILLEDBYSERVER                 | Killed by server             | This error is not set by the pilot. It is currently only set  |
+|            |                                |                              | by Harvester                                                  |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1238       | ESNOEVENTS                     | Event service: no events     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1240       | MESSAGEHANDLINGFAILURE         | Failed to handle message from|                                                               |
+|            |                                | payload                      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1242       | CHKSUMNOTSUP                   | Query checksum is not        | The error code is set if Pilot finds "query chksum is not     |
+|            |                                | supported                    | supported" or "Unable to checksum" in command output          |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1244       | NORELEASEFOUND                 | No release candidates found  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1246       | NOUSERTARBALL                  | User tarball could not be    |                                                               |
+|            |                                | downloaded from PanDA server |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1247       | BADXML                         | Badly formed XML             | Parsing of metadata failed most likely due to presence of     |
+|            |                                |                              | illegal character                                             |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1300       | NOTIMPLEMENTED                 | The class or function is not |                                                               |
+|            |                                | implemented                  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1301       | UNKNOWNEXCEPTION               | An unknown pilot exception   |                                                               |
+|            |                                | has occurred                 |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1302       | CONVERSIONFAILURE              | Failed to convert object data| E.g. if a JSON dictionary can't be converted from unicode to  |
+|            |                                |                              | utf-8                                                         |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1303       | FILEHANDLINGFAILURE            | Failed during file handling  | E.g. if a file can't be opened or a dictionary can't be loaded|
+|            |                                |                              | from file                                                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1305       | PAYLOADEXECUTIONFAILURE        | Failed to execute payload    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1306       | SINGULARITYGENERALFAILURE      | Singularity: general failure | Site issue; set if the Pilot finds "Operation not permitted"  |
+|            |                                |                              | in stderr                                                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1307       | SINGULARITYNOLOOPDEVICES       | Singularity: No more         | Site issue; set if Pilot finds "No more available loop        |
+|            |                                | available loop devices       | devices" in stderr                                            |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1308       | SINGULARITYBINDPOINTFAILURE    | Singularity: Not mounting    | Site issue; set if the Pilot finds "Not mounting requested    |
+|            |                                | requested bind point         | bind point" in stderr                                         |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1309       | SINGULARITYIMAGEMOUNTFAILURE   | Singularity: Failed to mount | Site issue; set if the Pilot finds "Failed to mount image"    |
+|            |                                | image                        | in stderr                                                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1310       | PAYLOADEXECUTIONEXCEPTION      | Exception caught during      | Internal pilot problem                                        |
+|            |                                | payload execution            |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1311       | NOTDEFINED                     | Not defined                  | A general - internally used - error that is explained in the  |
+|            |                                |                              | corresponding exception (NotDefined) error diagnostics; e.g.  |
+|            |                                |                              | the analytics package throws this exception if a fit has not  |
+|            |                                |                              | been defined; or if a math function fails to convert a string |
+|            |                                |                              | to an integer                                                 |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1312       | NOTSAMELENGTH                  | Not same length              | Internally used error corresponding to exception              |
+|            |                                |                              | NotSameLength, which is thrown if input data are not of same  |
+|            |                                |                              | length in a fit                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1313       | NOSTORAGEPROTOCOL              | No protocol defined for      |                                                               |
+|            |                                | storage endpoint             |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1314       | UNKNOWNCHECKSUMTYPE            | Unknown checksum type        |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1315       | UNKNOWNTRFFAILURE              | Unknown TRF failure          |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1316       | RUCIOSERVICEUNAVAILABLE        | Rucio: Service unavailable   | Set if corresponding Rucio error details (reg.exp. or         |
+|            |                                |                              | "service_unavailable") are found in copytool command output   |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1317       | EXCEEDEDMAXWAITTIME            | Exceeded maximum waiting time| Internally used exception.error code. Exception thrown by     |
+|            |                                |                              | pilot monitoring when abort_job wait time has been exceeded   |
+|            |                                |                              | (and when other threads have not finished cleaning up on      |
+|            |                                |                              | time). abort_job is set when pilot has received a kill signal |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1318       | COMMUNICATIONFAILURE           | Failed to communicate with   |                                                               |
+|            |                                | server                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1319       | INTERNALPILOTPROBLEM           | An internal Pilot problem has| Error code used for internal debugging. A more precise error  |
+|            |                                | occurred (consult Pilot log) | message should be written to the log                          |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1320       | LOGFILECREATIONFAILURE         | Failed during creation of log| In case tarfile.open() or the archive.add() fails, the pilot  |
+|            |                                | file                         | will set this error code                                      |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1321       | RUCIOLOCATIONFAILED            | Failed to get client location|                                                               |
+|            |                                | for Rucio                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1322       | RUCIOLISTREPLICASFAILED        | Failed to get replicas from  |                                                               |
+|            |                                | Rucio                        |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1323       | UNKNOWNCOPYTOOL                | Unknown copy tool            | Set if the requested copy tool has no implementation          |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1324       | SERVICENOTAVAILABLE            | Service not available at the | Rucio server not available                                    |
+|            |                                | moment                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1325       | SINGULARITYNOTINSTALLED        | Singularity: not installed   | Identified by trf exit code 64 and the string "Singularity is |
+|            |                                |                              | not installed" present in the stderr                          |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1326       | NOREPLICAS                     | No matching replicas were    | list_replicas() returned replicas but no local matching       |
+|            |                                | found in list_replicas()     | replica was found                                             |
+|            |                                | output                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1327       | UNREACHABLENETWORK             | Unable to stage-in file since| Problem seen with xrdcp command during stage-in               |
+|            |                                | network is unreachable       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1328       | PAYLOADSIGSEGV                 | SIGSEGV: Invalid memory      | Special payload error extracted from job report. A SIGSEGV    |
+|            |                                | reference or a segmentation  | is an error (signal) caused by an invalid memory reference    |
+|            |                                | fault                        | or a segmentation fault. The payload is probably trying to    |
+|            |                                |                              | access an array element out of bounds or trying to use too    |
+|            |                                |                              | much memory                                                   |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1329       | NONDETERMINISTICDDM            | Failed to construct SURL for | While Pilot 1 ignored the is_deterministic endpoint field if  |
+|            |                                | non-deterministic ddm (update| the storage path ended in /rucio, Pilot 3 will instead fail   |
+|            |                                | CRIC)                        | the job if the endpoint is not deterministic. The endpoint    |
+|            |                                |                              | should be fixed in CRIC                                       |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1330       | JSONRETRIEVALTIMEOUT           | JSON retrieval timed out     | Error is assigned if the pilot fails to download JSON         |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1331       | MISSINGINPUTFILE               | Input file is missing in     |                                                               |
+|            |                                | storage element              |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1332       | BLACKHOLE                      | Black hole detected in file  | This error is assigned if a pilot module goes missing.        |
+|            |                                | system (consult Pilot log)   | Typically this would mean that it cannot be imported          |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1333       | NOREMOTESPACE                  | No space left on device      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1334       | SETUPFATAL                     | Setup failed with a          |                                                               |
+|            |                                | fatal exception (consult     |                                                               |
+|            |                                | payload log)                 |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1335       | MISSINGUSERCODE                | User code not available on   | Error occurs when user tarball has been deleted from the      |
+|            |                                | PanDA server (resubmit task  | server and the pilot tries to download it. User must resubmit |
+|            |                                | with --useNewCode)           | task with prun/pathena option --useNewCode                    |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1336       | JOBALREADYRUNNING              | Job is already running       |                                                               |
+|            |                                | elsewhere                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1337       | BADMEMORYMONITORJSON           | Memory monitor produced bad  | Failure to parse JSON file from Memory monitor                |
+|            |                                | output                       |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1338       | STAGEINAUTHENTICATIONFAILURE   | Authentication failure during|                                                               |
+|            |                                | stage-in                     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1339       | DBRELEASEFAILURE               | Local DBRelease handling     |                                                               |
+|            |                                | failed (consult Pilot log)   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1340       | SINGULARITYNEWUSERNAMESPACE    | Singularity: Failed invoking |                                                               |
+|            |                                | the NEWUSER namespace runtime|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1341       | BADQUEUECONFIGURATION          | Bad queue configuration      |                                                               |
+|            |                                | detected                     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1342       | MIDDLEWAREIMPORTFAILURE        | Failed to import middleware  |                                                               |
+|            |                                | (consult Pilot log)          |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1343       | NOOUTPUTINJOBREPORT            | Found no output in job report| Set when output=[] in job report                              |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1344       | RESOURCEUNAVAILABLE            | Resource temporarily         | Set when get_current_cpu_consumption_time() fails due to      |
+|            |                                | unavailable                  | OSError exception raised in subprocess module (failed         |
+|            |                                | (consult Pilot log)          | os.fork()). To be extended in v 2.1.22+                       |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1345       | SINGULARITYFAILEDUSERNAMESPACE | Singularity: Failed to create| Detected in stderr when the transform has a non-zero exit code|
+|            |                                | user namespace               |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1346       | TRANSFORMNOTFOUND              | Transform not found          | Detected in stderr when the transform has a non-zero exit code|
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1347       | UNSUPPORTEDSL5OS               | Unsupported SL5 OS           | Detected in stderr when the transform has a non-zero exit code|
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1348       | SINGULARITYRESOURCEUNAVAILABLE | Singularity: Resource        | Detected in stderr when the transform has a non-zero exit code|
+|            |                                | temporarily unavailable      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1349       | UNRECOGNIZEDTRFARGUMENTS       | Unrecognized transform       | Detected in stderr when the transform has a non-zero exit code|
+|            |                                | arguments                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1350       | EMPTYOUTPUTFILE                | Empty output file detected   | Detected in stderr when the transform has a non-zero exit code|
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1351       | UNRECOGNIZEDTRFSTDERR          | Unrecognized fatal error in  | Detected in stderr when the transform has a non-zero exit code|
+|            |                                | transform stderr             |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1352       | STATFILEPROBLEM                | Failed to stat proc file for | The pilot sets this error during the CPU consumption          |
+|            |                                | CPU consumption calculation  | calculation if reading /proc/pid/stat fails with "No such     |
+|            |                                |                              | file or directory"                                            |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1353       | NOSUCHPROCESS                  | CPU consumption calculation  | The pilot sets this error during the CPU consumption          |
+|            |                                | failed: No such process      | calculation if reading /proc/pid/stat fails with "No such     |
+|            |                                |                              | process"                                                      |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1354       | GENERALCPUCALCPROBLEM          | General CPU consumption      | If there is a problem accessing the /proc/pid/stat file that  |
+|            |                                | calculation problem (consult | is not recognised, this error will be set                     |
+|            |                                | Pilot log)                   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1355       | COREDUMP                       | Core dump detected           | Set if a core dump is found for a failed job in the payload   |
+|            |                                |                              | work dir (during the initial payload error analysis). The core|
+|            |                                |                              | dump is removed. Note: currently the file name must be "core" |
+|            |                                |                              | (i.e. not "core.*")                                           |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1356       | PREPROCESSFAILURE              | Pre-process command failed   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1357       | POSTPROCESSFAILURE             | Post-process command failed  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1358       | MISSINGRELEASEUNPACKED         | Missing release setup in     | Pilot requires that /release_setup.sh is present in unpacked  |
+|            |                                | unpacked container           | containers. It is not present in older containers             |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1359       | PANDAQUEUENOTACTIVE            | PanDA queue is not active    | The error is set as soon as the pilot has downloaded queue    |
+|            |                                |                              | data if the queue is not active                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1360       | IMAGENOTFOUND                  | Image not found              | The error is set if the pilot cannot find an image whose path |
+|            |                                |                              | is known                                                      |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1361       | REMOTEFILECOULDNOTBEOPENED     | Remote file could not be     | For direct access jobs, the pilot attempts to open (and close)|
+|            |                                | opened                       | all input root files to avoid wasting CPU with the payload    |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1362       | XRDCPERROR                     | Xrdcp was unable to open file|                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1363       | KILLPAYLOAD                    | Raythena has decided to kill | If the pilot monitoring discovers a kill instruction file in  |
+|            |                                | payload                      | the pilot's work directory ($PILOT_HOME), it will terminate   |
+|            |                                |                              | the payload and set this error. The kill instruction file name|
+|            |                                |                              | and checking time are defined in the pilot configuration file |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1364       | MISSINGCREDENTIALS             | Unable to locate credentials | Error set if "Unable to locate credentials" is found in the S3|
+|            |                                | for S3 transfer              | transfer command output                                       |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1365       | NOCTYPES                       | Python module ctypes not     |                                                               |
+|            |                                | available on worker node     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1366       | CHECKSUMCALCFAILURE            | Failure during checksum      |                                                               |
+|            |                                | calculation                  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1367       | COMMANDTIMEDOUT                | Command timed out            |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1368       | REMOTEFILEOPENTIMEDOUT         | Remote file open timed out   |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1369       | FRONTIER                       | Frontier error               |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1370       | VOMSPROXYABOUTTOEXPIRE         | VOMS proxy is about to expire| Internal use only.                                            |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1371       | BADOUTPUTFILENAME              | Output file name does not    | Naming convention can be defined in copytool_definitions.py   |
+|            |                                | follow naming convention     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1372       | APPTAINERNOTINSTALLED          | VOMS proxy is about to expire| Apptainer not installed.                                      |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1373       | CERTIFICATEHASEXPIRED          | Certificate has expired      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1374       | REMOTEFILEDICTDOESNOTEXIST     | Remote file open dictionary  |                                                               |
+|            |                                | does not exist               |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1375       | LEASETIME                      | Lease time is up             | For DASK mode (internal use only)                             |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1376       | LOGCREATIONTIMEOUT             | Log file creation timed out  |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1377       | CVMFSISNOTALIVE                | CVMFS is not responding      | Pilot returns exit code 64 to the wrapper                     |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1378       | LSETUPTIMEDOUT                 | Lsetup command timed out     |                                                               |
+|            |                                | during remote file open      |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1379       | PREEMPTION                     | Job was preempted            | Replaced SIGTERM error to PREEMPTION for Kubernetes resource  |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1380       | ARCPROXYFAILURE                | General arcproxy failure     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1381       | ARCPROXYLIBFAILURE             | Arcproxy failure while       |                                                               |
+|            |                                | loading shared libraries     |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1382       | PROXYTOOSHORT                  | Proxy is too short           | Verified at the beginning of the pilot. Proxy must be over    |
+|            |                                |                              | 72h long. Pilot returns exit code 80 to the wrapper           |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+| 1383       | STAGEOUTAUTHENTICATIONFAILURE  | Authentication failure during|                                                               |
+|            |                                | stage-out                    |                                                               |
++------------+--------------------------------+------------------------------+---------------------------------------------------------------+
+# Introduction
+
+In the event service mode, the Pilot launches and feeds a payload with event ranges (a set of events to be processed) downloaded from the server. The event service mode itself is set internally, after the Pilot receives a corresponding event service job by the PanDA server. For such a job, the job definition JSON contains the instruction 'eventService' (for normal event service jobs) or 'eventServiceMerge' (for event service merge jobs, in which the pilot merges many small event service files into a bigger file).
+
+# Function calls until ESProcess starts
+
+Event service mode is selected when the pilot downloads a job carrying one of the event service identifiers ('eventService' or 'eventServiceMerge') in the job description. Seeing one of these identifiers, the pilot internally sets the 'is_eventservice' or 'is_eventservicemerge' booleans that are data members of the JobData class (i.e. they end up in the job object as job.is_eventservice and job.is_eventservicemerge). The pilot later uses them in pilot/control/payload to select the proper payload executor (eventservice.Executor or eventservicemerge.Executor - the executor for running 'normal' jobs is called generic.Executor). The pilot starts the selected executor by calling its run() function. The main pilot keeps running its normal threads in the meantime for monitoring.
+
+The eventServiceMerge workflow is very similar to the generic workflow, while the main eventService workflow is very different. In it's run_payload() function (called from the run() function), the executor type is selected. For a normal event service job to be run on a grid site, the 'generic' is used. For the Raythena workflow, the executor type is 'raythena'. As of April 2020, the executor type has to be set in the pilot config file although it might be preferable to use AGIS instead. When the payload (job object) has been attached to the selected executor, the executor itself is launched by calling its start() function. When the GenericExecutor starts, its run() function gets called since it is a thread. The run() function in turn starts the ESProcess, described in the next section.
+
+`pilot.control.payload.execute_payloads()`
+`'-> pilot.control.payloads.eventservice.Executor.run()   (generic.Executor.run())`
+   `'-> pilot.control.payloads.eventservice.Executor.run_payload()`
+       `'-> pilot.eventservice.workexecutor.workexecutor.start()   (plugin gets selected using config file, thread starts, run() gets executed)`
+            `'-> pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor.start() (basexecutor.BaseExecutor.start())`
+                `'-> pilot.eventservice.communicationmanager.communicationmanager.start() (thread starting)`
+            `'-> pilot.eventservice.workexecutor.plugins.genericexecutor.run()`
+                `'-> pilot.eventservice.esprocess.esprocess.ESProcess.start()`
+
+# ESProcess
+
+ESProcess works as an independent thread with two hooks to communicate without outside. Callers needs to implement these two hooks and link them to the ESProcess when using it.
+
+     * get_event_ranges_hook: to get events
+     * handle_output_message_hook: to handle outputs
+
+![ESProcess](http://cern.ch/atlas-panda-pilot/images/ESProcess.png)
+
+# ESExecutor
+
+pilot.control.payloads.eventservice.py
+pilot.eventservice.workexecutor.plugins.genericexecutor.py
+Implement get_event_ranges_hook and handle_output_message_hook and link them to ESProcess.
+The handle_output_message_hook calls ESStageOut client to stageout ES outputs.
+To facilitate the internal propagation of detected errors, the pilot throws an exception belonging to the PilotException class. The current range of supported exceptions can be found in the table below.
+
+| Exception              | Error acronym           | Meaning                                         |
+| ---------------------- | ----------------------- | ----------------------------------------------- |
+| BadXML                 | BADXML                  | Badly formed XML                                |
+| CommunicationFailure   | COMMUNICATIONFAILURE    | Server communication failed                     |
+| ConversionFailure      | CONVERSIONFAILURE       | Failed to convert object data                   |
+| ESFatal                | ESFATAL                 | Eventservice fatal exception                    |
+| ESNoEvents             | ESNOEVENTS              | Eventservice no events exception                |
+| ESRecoverable          | ESRECOVERABLE           | Eventservice recoverable exception              |
+| ExceededMaxWaitTime    | EXCEEDEDMAXWAITTIME     | Exceeded maximum waiting time (after abort_job) |
+| ExecutedCloneJob       | EXECUTEDCLONEJOB        | Clone job executed exception                    |
+| FileHandlingFailure    | FILEHANDLINGFAILURE     | Failed during file handling                     |
+| LogFileCreationFailure | LOGFILECREATIONFAILURE  | Log file could not be created                   |
+| MessageFailure         | MESSAGEHANDLINGFAILURE  | Failed to handle messages                       |
+| MKDirFailure           | MKDIR                   | Failed to create local directory                |
+| NoGridProxy            | NOPROXY                 | Grid proxy not valid                            |
+| NoLocalSpace           | NOLOCALSPACE            | Not enough local space                          |
+| NoSoftwareDir          | NOSOFTWAREDIR           | Software applications directory does not exist  |
+| NoSuchFile             | NOSUCHFILE              | No such file or directory                       |
+| NotDefined             | NOTDEFINED              | Not defined exception                           |
+| NotImplemented         | NOTIMPLEMENTED          | Not implemented exception                       |
+| NotSameLength          | NOTSAMELENGTH           | Not same length exception                       |
+| NoVomsProxy            | NOVOMSPROXY             | Voms proxy not valid                            |
+| QueuedataFailure       | QUEUEDATA               | Failed to download queuedata                    |
+| QueuedataNotOK         | QUEUEDATANOTOK          | Corrupt queuedata                               |
+| ReplicasNotFound       | NOREPLICAS              | No matching replicas were found                 |
+| RunPayloadFailure      | PAYLOADEXECUTIONFAILURE | Failed to execute payload                       |
+| SetupFailure           | SETUPFAILURE            | Failed to setup environment                     |
+| SizeTooLarge           | SIZETOOLARGE            | Too large input files                           |
+| StageInFailure         | STAGEINFAILED           | Failed to stage-in file                         |
+| StageOutFailure        | STAGEOUTFAILED          | Failed to stage-out file                        |
+| TrfDownloadFailure     | TRFDOWNLOADFAILURE      | Transform could not be downloaded               |
+| UnknownException       | UNKNOWNEXCEPTION        | Unknown exception                               |
+## What Are Unified PanDA Queues?
+
+Unified PanDA Queues (also known as Grand-Unified-Queues (GUQs)) allow production and analysis activities to share the same PanDA queues. This enhances resource utilization by dynamically adjusting fairshare allocations between production and analysis tasks, which in turn benefits analysis activities by ensuring better access to computing resources, thereby increasing the efficiency and success rate of analysis jobs.
+
+## Fallback Mechanism
+
+When a unified PanDA queue encounters an issue with its primary data writing endpoint (e.g., write_lan/0 being down), it can automatically fallback to an alternative endpoint, such as write_lan/1. This capability is particularly beneficial for queues utilizing a remote Rucio Storage Element (RSE) to store job output (e.g. VP queues).
+
+### How the Pilot Determines the Destination
+
+The pilot dynamically selects the appropriate destination based on:
+
+1. Job Type:
+   * For analysis jobs, the Pilot considers write_lan_analysis and write_lan activities
+   * For production jobs, the default selection is write_lan
+2. Fallback Logic:
+   * If the preferred write_lan/0 endpoint is unavailable, the Pilot automatically tries write_lan/1
+   * This decision helps prevent failures due to temporary storage or network issues
+
+### Exclusion of job.nucleus as an Alternative
+
+One important restriction in the fallback mechanism is that the job.nucleus (the originally desired destination of the output data) is excluded from being considered as an alternative stage-out destination.
+
+This exclusion is managed through the "Associated Pilot Copytools" configuration within the Computing Resource Information Catalog (CRIC). Each PanDA queue has its own settings in CRIC, defining which copy tools (data transfer utilities) can be used for job output transfer.
+
+
+# Introduction
+
+The PanDA Pilot 3 is a client application for the PanDA (Production and Distributed Analysis) Workload Management System (WMS). Its primary role is to run on a worker node, fetch jobs from a PanDA server, execute the job payload (e.g., a scientific computation), and return the output. It's a key component in large-scale distributed computing environments like the Worldwide LHC Computing Grid (WLCG).
+
+The PanDA Pilot has been used by ATLAS and other experiments for well over a decade. To meet the demands of extending PanDA beyond grids and ATLAS, the original Pilot (henceforth referred to as Pilot 1) was rewritten and Pilot 2 was born. Between 2020-2021, Python 3 support was added to Pilot 2. In late 2021, the Python 2 support was removed and work began to replace older code constructs for the more modern Python 3, the resulting Pilot 3 was created. As of 2025, the minimum supported Python version is 3.9 (to be changed to 3.12 soon).
+
+# What does the PanDA Pilot do?
+
+The task of the PanDA Pilot is to monitor and execute work units on a worker node, either on the job or event level. On the job level, the work unit is a payload that a user or production system wants to execute. The payload has certain requirements, e.g. input and output files, that are staged by the Pilot, and needs a working environment (incl. containers) that is setup by the Pilot. On the event level, the Pilot launches and feeds a payload with event ranges (a set of events to be processed) downloaded from a server.
+
+![Job cycle](http://cern.ch/atlas-panda-pilot/images/Job_cycle-v3.png)
+
+Jobs are downloaded and processed sequentially until the Pilot runs out of time (defined by PQ.timefloor). All sub-steps are optional and can be executed in containers. The Pilot is monitoring all steps, and report to the server regularly.
+
+# PanDA Pilot highlights
+
+* The Pilot is launched by a pilot wrapper script sent to the WN by Harvester/batch system
+* It is responsible for running payloads created by the users or production system, and monitors all steps and keeping the server updated
+  * Any necessary input, and produced output will be transferred from/to the current storage element
+  * Input may be accessed directly from storage by the payload, in which case the pilot will not transfer the file
+  * The payload may consist of a suite of pre-, co- and post-processes as well as the main payload itself (e.g. in HPO jobs)
+  * The Pilot can execute special utility processes (e.g. xcache service and memory monitoring tools)
+  * All processes can be executed in their own containers, either predetermined or set by the users
+  * In event service mode, the Pilot launches and feeds a payload with event ranges (a set of events to be processed) downloaded from the server
+* All server communications are done with secure https
+* File transfers are handled by dedicated copy tools
+  * Currently supported copy tools: rucio, xrdcp, gfal, gs, s3, mv/cp/ln, objectstore, lsm (locally defined)
+* Support for HPCs with no outside network communications is done via plug-ins or entire workflows (in the case of Raythena)
+* Identification and reporting of 130+ unique errors
+* Troublesome payloads can be debugged live (PanDA monitor) via the tail of latest modified file uploaded on each server update (every five minutes in debug mode) or live via near real-time logging with the help of Google Cloud Logging, Fluentd and Logstash
+* The Pilot is user (“experiment”) independent with the user code stored in plug-ins
+  * Pilot plug-ins exist for ATLAS, sPHENIX and Rubin
+* The Pilot may run in stager mode, in which is only performs file staging
+* The current version is Python 3 compliant
+  * A GitHub pull request triggers unit tests and flake8 verifications for Python 3.7, 3.8 and 3.9
+
+# How does the Pilot fit into the PanDA hierarchy?
+
+The PanDA Pilot is executed on the worker nodes on local resources, on grids and clouds, on HPCs and on volunteer computers. It is downloaded and run by wrapper scripts that are sent by Pilot factories to the worker nodes via batch systems. A Pilot interacts with the PanDA server either directly, via a local instance of the ARC Control Tower (a job management framework used on Nordugrid) or with the resource-facing Harvester service (which provides resource provisioning and workload shaping).
+
+# Release announcements
+
+New Pilot releases will be announced on the panda-pilot-announce e-group list. Please [subscribe](https://e-groups.cern.ch/e-groups/Egroup.do?egroupId=10505428) if you want to stay informed.
+
+![](http://project-atlas-gmsb.web.cern.ch/project-atlas-gmsb/pilot2wiki/OV_Overview.png)# HPC workflow in Pilot 3
+
+The Pilot 3 HPC workflow is a special mode where the application works without a remote connection to PanDA server or other
+remote facilities. All intercommunications in this case are managed by the Harvester application. Also, in this mode Pilot 3 acts like a simple MPI application, which performs execution of multiple jobs on the computing nodes of the HPC.
+
+### How to launch HPC workflow
+
+To launch the HPC workflow in Pilot 3 the command line parameter '-w generic_hpc' (Pilot option) should be specified.
+
+### HPC PlugIns
+
+Different HPCs may require special treatments for the preparation of launching the payload. To cover this, implementations were placed in HPC specific plugins. The particular plugin should be specified using the command line parameter: '--hpc-resource' followed by the resource name.
+
+Implementations of the plugins must be placed in the pilot/resource directory. Modules have been created for ALCF, BNL, NERSC and Titan. As of January 2019, only the module for Titan is fully implemented.
+
+### Mandatory functions in the HPC Plugins
+
+**Get job**
+```
+get_job(communication_point)
+:param communication_point: path to config.Harvester.jobs_list_file (string).
+:return: job object, rank (int).
+```
+Retrieve job description from json file, fill Job object and return it along with current rank.
+
+**Set working directory for job**
+```
+set_job_workdir(job, communication_point)
+:param job: job object.
+:param communication_point: local path to Harvester access point (string).
+:return: job working directory (string).
+```
+Set job/pilot working directory. The function also cd's into this directory.
+
+**Get setup**
+```
+get_setup(job=None)
+:param job: optional job object.
+:return: setup commands (list).
+```
+Return a list of setup commands, which may be required by the infrastructure. The job object is also sent to this function in case it is needed on the relevant resource.
+
+**Set working directory for scratch space**
+```
+set_scratch_workdir(job, work_dir, args)
+:param job: job object.
+:param work_dir: job working directory (permanent FS) (string).
+:param args: args dictionary to collect timing metrics.
+:return: job working directory in scratch (string).
+```
+Setup the working directory on the transient high-speed storage (RAM disk, local SSD etc). Input files and some DB files are copied to the scratch disk.
+
+**Payload command fix**
+```
+command_fix(command, job_scratch_dir)
+:param command: payload command (string).
+:param job_scratch_dir: local path to input files (string).
+:return: updated/fixed payload command (string).
+```
+Adapt some payload parameters for execution on the particular infrastructure. E.g. (Titan) full paths to the input files are inserted in the payload execution command. Any '--DBRelease="all:current"' option is removed to avoid Frontier reading.
+
+**Job report processing**
+```
+process_jobreport(payload_report_file, job_scratch_path, job_communication_point)
+:param payload_report_file: name of job report (string).
+:param job_scratch_path: path to scratch directory (string).
+:param job_communication_point: path to updated job report accessible by Harvester (string).
+:raises FileHandlingFailure: in case of IOError.
+```
+Copy the job report file form scratch to the working directory and shrink it if necessary. E.g. remove any 'logfileReport' from the dictionary.
+
+**Post processing of working directory**
+```
+postprocess_workdir(workdir)
+:param workdir: path to directory to be processed (string).
+:raises FileHandlingFailure: in case of IOError.
+```
+Some post processing of the working directory (if needed).The Pilot uses a number of internal threads to keep track of different tasks. They are listed and explained below.
+
+| Thread name         | Controller  | Usage                                                                                      |
+| ------------------- | ----------- | ------------------------------------------------------------------------------------------ |
+| data                | generic     | Main thread for data control (generic workflow).                                           |
+| copytool_in         | data        | Stage-in thread.                                                                           |
+| copytool_out        | data        | Stage-out thread.                                                                          |
+| queue_monitoring    | data        | Thread for monitoring queues. ..                                                           |
+| receive             | interceptor | (Deprecated)                                                                               |
+| send                | interceptor | (Deprecated)                                                                               |
+| job                 | generic     | Main thread for job control. (generic workflow).                                           |
+| validate            | job         | ..                                                                                         |
+| retrieve            | job         | ..                                                                                         |
+| create_data_payload | job         | ..                                                                                         |
+| queue_monitor       | job         | ..                                                                                         |
+| job_monitor         | job         | ..                                                                                         |
+| fast_job_monitor    | job         | Thread providing fast monitoring which could be useful for real-time logging. It calls     |
+|                     |             | user defined fast_monitor_tasks().                                                         |
+| message_listener    | job         | Listener for ActiveMQ messages.                                                            |
+| payload             | generic     | Main thread for payload control (generic workflow).                                        |
+| validate_pre        | payload     | ..                                                                                         |
+| execute_payloads    | payload     | ..                                                                                         |
+| validate_post       | payload     | ..                                                                                         |
+| failed_post         | payload     | ..                                                                                         |
+| run_realtimelog     | payload     | ..                                                                                         |
+| monitor             | generic     | Main thread for monitor control (generic workflow). Currently this thread does not spawn   |
+|                     |             | any further threads.                                                                       |
+| job                 | stager      | Main thread for job control (stager workflow).                                             |
+| data                | stager      | Main thread for data control (stager workflow).                                            |
+| monitor             | stager      | Main thread for monitor control (stager workflow).                                         |
+
+
+
+The Job object is an instance of the JobData class. It holds all information relevant to a given PanDA job. Below is a list of the data members of the JobData class along with explanations.
+
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| Data member                | Type              | Meaning                                                                                   |
++============================+===================+===========================================================================================+
+| accessmode                 | String            | Direct access instruction from jobparams. E.g. jobparams = '.. --accessmode=copy ..' gives|
+|                            |                   | accessmode = 'copy' (copy-to-scratch mode), or jobparams = '.. --accessmode=direct ..'    |
+|                            |                   | gives accessmode = 'direct' (i.e. direct access mode). 'copy' is the default value.       |
+|                            |                   | accessmode = 'direct' is also set if 'storage_token') != 'local' and (transfertype is     |
+|                            |                   | 'direct' or job is a user analysis job)                                                   |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| actualcorecount            | Integer           | Number of cores actually used by the payload                                              |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| allownooutput              | String            | Used to disregard empty files from job report. If this is an empty string, do nothing -   |
+|                            |                   | it set, output files will be removed if they are present in allownooutput and do not exist|
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| alrbuserplatform           | String            | ALRB_USER_PLATFORM encoded in the platform/cmtconfig value ('@' is used as separator).    |
+|                            |                   | If set, the value will be used with 'export thePlatform=..' in the ALRB (container) setup |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| attemptnr                  | Integer           | Job attempt number. The pilot does not use this number by itself; it is included in the   |
+|                            |                   | job definition and is uploaded with each server communication                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| command                    | String            | The full payload command                                                                  |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| containeroptions           | Dictionary        | A dictionary from the job definition that can be used in the container setup. In the      |
+|                            |                   | ATLAS code, the following fields are used: containerImage (export value for thePlatform), |
+|                            |                   | containerExec (..) and execArgs (..)                                                      |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| coprocess                  | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| corecount                  | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| corecounts                 | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| cpuconsumptionunit         | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| cpuconsumptiontime         | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| cpuconversionfactor        | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| currentsize                | Integer           | The current size of the job object                                                        |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| datasetin                  | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| dbdata                     |                   |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| dbtime                     |                   |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| debug                      | Boolean           | True in the case the pilot receives a debug command from the server via the backchannel   |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| debug_command              | String            | Debug command sent from the server in debug mode. Pilot accepts several different commands|
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| destinationdblock          | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| exeerrorcode               | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| exeerrordiag               | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| exitcode                   | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| exitmsg                    | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| fileinfo                   | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| homepackage                | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| imagename                  | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| imagename_jobdef           | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| indata                     | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| infilesguids               | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| is_eventservice            | Boolean           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| is_eventservicemerge       | Boolean           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| is_hpo                     | Boolean           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| jobdefinitionid            | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| jobid                      | String            | Unique Job identifier (synonymous with PandaID), e.g. jobid = '4993552533'                |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| jobparams                  | String            | Job parameters defining the payload execution (options to the payload command)            |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| jobsetid                   | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| logdata                    | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| looping_check              | Boolean           | If set to True in job definition, the Pilot will perform the looping job check using      |
+|                            |                   | an internally set time-out limit (see default.cfg)                                        |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| maxcpucount                | Integer           | (previously used for controlling looping job limits - currently unused)                   |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| memorymonitor              | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| metadata                   | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| nevents                    | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| neventsw                   | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| noexecstrcnv               |                   |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| outdata                    | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| overwrite_queuedata        | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| overwrite_storagedata      | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| payload                    | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| pgrp                       | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| pid                        | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| piloterrorcode             | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| piloterrorcodes            | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| piloterrordiag             | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| piloterrordiags            | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| platform                   | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| postprocess                | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| preprocess                 | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| processingtype             | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| produserid                 | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| setup                      | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| serverstate                | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| sizes                      | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| stageout                   | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| state                      | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| status                     | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| swrelease                  | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| t0                         | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| taskid                     | String            | Unique Task identifier, corresponding to the task that this job belongs to. If not set by |
+|                            |                   | the server, the value in the job definition dictionary will be 'NULL'. Otherwise numeric, |
+|                            |                   | e.g. tasked = '24342519'                                                                  |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| transexitcode              | Integer           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| transfertype               | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| transformation             | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| use_vp                     | Boolean           |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| utilities                  | Dictionary        |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| workdir                    | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| workdirsizes               | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| writetofile                | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| zipmap                     | String            |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| zombies                    | List              |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| _rawdata                   | Dictionary        | Placement holder for infosys raw data (internally used only)                              |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+The pilot maintains, parses, and trims a number of metadata files and objects. The list below gives details about each of them.
+
+## Job Report
+
+The jobReport.json file is a metadata file created by most ATLAS payloads. If it exists (all production jobs create it but not all user analysis jobs), the pilot will add it to the final server update. Currently, it re-uses the 'metaData' field in the server update to send the JSON information as text.
+
+### Job Report for production jobs
+
+The payload / transform in a production job is expected to create a job report (json dictionary) containing several fields that are needed by the pilot and by Harvester (on HPCs). In ATLAS, it contains many additional fields that are not used by the pilot or Harvester, but is used by other components so the pilot sends the entire file along with the final server update ('metaData' field). The default file name is "jobReport.json" but can be defined in the pilot configuration file (pilot/util/default.cfg, "jobreport"). The pilot expects to find the following fields:
+
+```
+exitCode - the payload exit code
+exitMsg - the payload exit message
+```
+
+(the fields expected by Harvester may be documented elsewhere).
+
+For ATLAS there are several other fields used, including:
+
+```
+nevents - the number of processed events
+Avg - average memory info
+Max - max memory info
+dbData
+dbTime
+cpuTime - consumed CPU time
+```
+
+Furthermore, the dictionary format (relevant for the above fields) is:
+
+```
+{
+   ..
+   "exitCode": [integer],
+   "exitMsg": "[string]",
+   "resource": {"executor": {"nevents": <int>, "memory": {"Avg": .., "Max": ..}, "cpuTime": <int>, "dbData": <int>, "dbTime": <float>}
+ }
+```
+
+Note: on (at least) Titan, the "logfileReport" is reset before jobReport is uploaded.
+
+## File info JSON
+
+Metadata information for log and output files is reported to the server using the 'xml' field (reused, there is no 'son' field). The Pilot creates this metadata (internally uses the 'fileinfo' job object field).
+
+## Metadata XML
+
+The (older) metadata.xml file is optionally produced by the transform but should now be replaced by the job report. If it exists it is uploaded to the server with the 'metaData' field, assuming that the more modern job report does not exist. Internally used filename: metadata-&lt;jobId&gt;.xml. Example:
+
+```
+<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>
+<!-- ATLAS file meta-data catalog -->
+<!DOCTYPE POOLFILECATALOG SYSTEM \"InMemory\">
+<POOLFILECATALOG>
+  <File ID=\"cfe820f3-e08b-48f0-9d7e-965463696c6d\">
+    <logical>
+      <lfn name=\"79d9d938-09e1-4986-af64-ae4f4fc0909e_84526.1.job.log.tgz\"/>
+    </logical>
+    <metadata att_name=\"surl\" att_value=\"srm://someurl.org:8443/srm/managerv2?SFN=/pnfs/aglt2.org/atlasdatadisk/rucio/hc_test/c5/94/79d9d938-09e1-4986-af64-ae4f4fc0909e_84526.1.job.log.tgz\"/>
+    <metadata att_name=\"fsize\" att_value=\"203545\"/>
+    <metadata att_name=\"adler32\" att_value=\"493331fd\"/>
+  </File>
+</POOLFILECATALOG>
+```
+
+## Pool File Catalog XML
+
+The Pilot creates a metadata file for the input files called PoolFileCatalog.xml. This is used by the transform and contains file ID (GUID) and PFN value. Example:
+
+```
+<?xml version=\"1.0\" ?>
+<!-- Edited By the PanDA Pilot -->
+<!DOCTYPE POOLFILECATALOG  SYSTEM \"InMemory\">
+<POOLFILECATALOG>
+  <File ID=\"57FEAAE3-3E5F-224C-B281-6182329FB27E\">
+    <physical>
+      <pfn filetype=\"ROOT_All\" name=\"AOD.11106916._005324.pool.root.1\"/>
+    </physical>
+    <logical/>
+  </File>
+..
+</POOLFILECATALOG>
+```
+
+## DDM Endpoints (JSON)
+
+.. (agis_ddmendpoints.json)
+
+## Schedconfig JSON
+
+.. (agis_schedconf.json)
+
+## Rucio traces
+
+The pilot sends detailed information about file transfers to Rucio. A list with the different fields contained in the trace report can be found in the [Pilot 2 wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/PilotRucioTraces).
+
+The traces are sent by the Pilot directly to the Rucio server.
+
+## Memory Monitor Summary JSON
+
+.. (memory_monitor_summary.json)
+
+## Job Definition JSON
+
+A Harvester job definition file (pandaJobData.out) is copied from the Pilot's home directory and renamed to job_definition.json, and placed in the job's work directory for later reference (i.e. it gets stored in the log).
+
+## HPC Worker Attributes JSON
+
+.. (worker_attributes.json)
+
+## HPC Jobs JSON
+
+? (HPCJobs.json)
+
+## HPC Worker PanDA IDs JSON
+
+.. (worker_pandaids.json)More information about the PanDA Pilot can be found among the following resources.
+
+## Publications
+
+CHEP 2018 proceedings.
+
+## Wikis
+
+[Pilot 1 Wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/PandaPilot)
+
+[Pilot 2 Wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/Pilot2)
+The Pilot is normally used as a command-line tool and launched by a wrapper script sent to the batch systems by a Pilot Factory. In case this is not wanted but some Pilot functionality is still needed, an external user may call relevant functions via simplified Pilot APIs that provide convenient access to internal Pilot modules and functions that otherwise may be difficult to use. Other APIs include the Services API (benchmarking, memory monitoring and analysis package) and Communicator API (server interactions).
+
+![](http://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/Pilot_2_APIs.jpg)
+
+The APIs are further described below.
+
+## Data API
+
+The Data API was the first API to be delivered for use with Harvester on HPCs.
+
+**Example: stage-in without InfoSys initialisation**
+```
+from pilot.api import data
+from pilot.info import FileSpec
+
+client = data.StageInClient()
+files = [{'scope': 'mc16_13TeV', 'lfn': 'EVNT.11320990._003958.pool.root.1', 'workdir': '.',
+          'ddmendpoint': 'RRC-KI-T1_DATADISK'}]
+xfiles = [FileSpec(type='input', **f) for f in files]
+r = client.transfer(xfiles)
+```
+
+**Example: stage-in with InfoSys initialisation**
+```
+from pilot.api import data
+from pilot.info import InfoService, FileSpec, infosys
+
+infoservice = InfoService()
+infoservice.init('ANALY_CERN', infosys.confinfo, infosys.extinfo)
+client = data.StageInClient(infoservice)
+files = [{'scope': 'mc16_13TeV', 'lfn': 'EVNT.11320990._003958.pool.root.1', 'workdir': '.'}]
+xfiles = [FileSpec(type='input', **f) for f in files]
+r = client.transfer(xfiles)
+```
+
+## Services API
+
+The Services API is further divided into a Benchmark API, Memory Monitoring API and Analysis API.
+
+### Analysis API
+
+The Analysis API is currently limited to a linear fit module that is used to fit memory monitoring data and to report memory leaks.
+
+**Example: linear fit**
+```
+from pilot.api import analytics
+
+x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+y = [0.5, 1.1, 2.2, 3.6, 4.0, 5.0, 6.1, 7.7, 8.9, 9.1]
+
+client = analytics.Analytics()
+fit = client.fit(x, y)
+slope = fit.slope()
+intersect = fit.intersect()
+```
+
+### Benchmark API
+
+(In development)
+
+### Memory Monitoring API
+
+(In development)The Pilot is component based, with each component being responsible for different tasks. The main tasks are handled by controller components, such as Job Control, Payload Control and Data Control. There is also a set of components with auxiliary functionalities, e.g. Pilot Monitor and Job Monitor - one for internal use which monitors threads and one that is tied to the job and checks parameters that are relevant for the payload (e.g. size checks). The Information System component presents an interface to a database containing knowledge about the resource where the Pilot is running (e.g. which copy tool to use and where to read and write data).
+
+![PanDA Pilot Architecture](http://cern.ch/atlas-panda-pilot/images/pilot2-v9.png)
+
+## Workflows
+
+The pilot worksflows are described in the corresponding [section](Pilot-workflows).
+
+## Pilot Components
+
+Each of the pilot components run as independent threads in the pilot. Each component has additional subthreads and are described below. Most of the threads manipulate Job objects that contain all the full information for a job downloaded from the PanDA server, or read from file. The Job objects are stored in globally available Python Queues. A Job object is passed around different queues until processing it has completed. The various threads are monitoring these queues, and act on a Job object as it arrives.
+
+### Job Control
+
+The Job control spawns five subthreads for various tasks:
+
+* `retrieve`: Retrieve a job definition from any source and place it in the "job" queue. The job definition is a json dictionary that is either preplaced in the launch directory or downloaded from a server specified by `args.url` (pilot option)
+* `validate`: Retrieve a Job object from the "jobs" queue. If it passes the user defined verification, the main payload work directory gets created (`PanDA_Pilot-<pandaid>`) in the main pilot work directory. The Job object is passed on to the "validated_jobs" queue or "failed_jobs" in case of failure
+* `create_data_payload`: Get a Job object from the "validated_jobs" queue. If the job has defined input files, move the Job object to the "data_in" queue and put the internal pilot state to "stagein". In case there are no input files, place the Job object in the "finished_data_in" queue. For either case, the thread also places the Job object in the "payloads" queue (another thread will retrieve it and wait for any stage-in to finish)
+* `queue_monitor`: Monitoring of (internal Python) queues. This thread monitors queue activity, specifically if a job has finished or failed,  and reports to the server. A completed job will be moved to the "completed_jobs" queue
+* `job_monitor`: Monitoring of job parameters. This thread monitors certain job parameters, such as job looping, at various time intervals. The main loop is executed once a minute, while individual verifications may be executed at any time interval (>= 1 minute). E.g. looping jobs are checked once per ten minutes (default) and the heartbeat is send once per 30 minutes. Memory usage is checked once a minute
+
+### Payload Control
+
+The Payload control spawns four threads related to executing the main payload:
+
+* `validate_pre`: Get a Job object from the "payloads" queue. If the payload is successfully validated (user defined), the Job object is placed in the "validated_payloads" queue, otherwise it is placed in the "failed_payloads" queue
+* `execute_payloads`: Extract a Job object from the "validated_payloads" queue and put it in the "monitored_jobs" queue. The payload stdout/err streams are opened and the pilot state is changed to "starting". A payload executor is selected (for executing a normal job, an event service job or event service merge job). After the payload (or rather its executor) is started, the thread will wait for it to finish and then check for any failures. A successfully completed job is placed in the "finished_payloads" queue, and a failed job will be placed in the "failed_payloads" queue
+* `validate_post`: Validate finished payloads. The completed job will be added to the "data_out" queue
+* `failed_post`: Get a Job object from the "failed_payloads" queue. Set the pilot state to "stakeout" and the stageout field to "log", and add the Job object to the "data_out" queue
+
+### Data Control
+
+Data Control manages three threads:
+
+* `copytool_in`: Call the stage-in function and put the Job object in the proper queue. Get a Job object from the "data_in" queue and place immediately in the "current_data_in". Notify the server that the job is in "running" state (note that the payload is not yet running, but the job is). The stage-in function is called, and if it finishes correctly the Job object is moved to the "finished_data_in" queue and is also removed from the "current_data_in" queue. In case of stage-in failure, the Job object is moved to the "failed_data_in" queue
+* `copytool_out`: Perform stage-out as soon as a job object can be extracted from the data_out queue. If the stage-out function finishes correctly, place the Job object in the "finished_data_out" queue. In case of failure, place it in the "failed_data_out" queue
+* `queue_monitoring`: Monitoring of Data queues. If a Job object can be extracted from the "failed_data_in" (or from the "failed_data_out") queue, set the stageout field to "log" and attempt to stage-out the log. If a Job object can be extracted from the "finished_data_out" queue, put a successful job in the "finished_jobs" queue and a failed job in the "failed_jobs" queue
+
+### Pilot and Job Monitors
+
+The job_monitor thread is described in the Job Control section above. The Pilot monitor is responsible for internal thread monitoring and will report if a thread is no longer alive. It also provides internal memory monitoring of the pilot process and makes sure that the pilot is not exceeding the maximum allowed running time.
+
+
+
+
+The pilot configuration is stored in the default.cfg file (pilot3/pilot/util directory). The default values can be overridden locally but placing a config file in the pilot's launch directory. The various fields are described in the table below (in the order of appearance in the config file).
+
+Section: Experiment
+
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| Field                                 | Default value    | Description                                                                    |
++=======================================+==================+================================================================================+
+| name                                  | ATLAS            | Pilot user name (currently unused).                                            |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+
+Section: Pilot
+
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| Field                                 | Default value    | Description                                                                    |
++=======================================+==================+================================================================================+
+| pilotlog                              | pilotlog.txt     | Main pilot log stored in the job log.                                          |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| stageinlog                            | stageinlog.txt   | Name of log file for stage-in.                                                 |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| stageoutlog                           | stageoutlog.txt. | Name of log file for stage-out.                                                |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| pandajobdata                          | pandaJobData.out | Name of job definition file.                                                   |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| pandajob                              | real             | Alternative: 'fake'. Used for pilot testing (see the following three fields).  |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| testjobtype                           | production       | Alternative: 'user'. Used for pilot testing.                                   |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| testjobcommand                        | normal           | Alternative: 'sleep' (sleep 1 will be executed as payload). Used for pilot     |
+|                                       |                  | testing.                                                                       |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| testtransfertype                      | NULL             | Alternative: 'direct'. Used for pilot testing.                                 |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| pandaserver                           | (see code)       | The URL for the PanDA server.                                                  |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| iddsserver                            | (see code)       | The URL for the iDDS server.                                                   |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| heartbeat                             | 1800             | The heartbeat period in normal mode (30*60 = 1800 s).                          |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| debug_heartbeat                       | 300              | The heartbeat period in debug mode (5*60 = 300 s).                             |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| heartbeat_message                     | heartbeat.json   | Heartbeat message file (only used when Pilot is not sending heartbeats to      |
+|                                       |                  | server).                                                                       |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| jobid_file                            | pandaIDs.out     | Job IDs can be stored to a file that is picked up by the wrapper.              |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| free_space_limit                      | 2 GB             | The minimum required disk space for the pilot to run a job.                    |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| free_space_limit_running              | 1 GB             | The minimum required disk space during running.                                |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| maximum_output_file_size              | 500 GB           | The maximum output file size. The default is currently 'infinity'.             |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| maximum_input_file_sizes              | 14336 MB         | The maximum allowed sum of all input files (files accessed by direct access are|
+|                                       |                  | not counted by the Pilot). Note: this is a fall-back value - the primary value |
+|                                       |                  | is set in AGIS.                                                                |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| local_size_limit_stdout               | 2097152 kB       | Size limit of payload stdout size during running (default: 2 * 1024^2).        |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| looping_verification_time             | 900 min          | Looping job time limits; if job does not write anything in N minutes, it is    |
+|                                       |                  | considered to be a looping. This field determines the frequency of the check.  |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| looping_limit_default                 | 7200 min         | Time limit for looping jobs. Any output must have been updated within this time|
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| looping_limit_min_default             | 7200 min         | The minimum allowed looping limit, 2*3600 (reserved for future use).           |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| kill_instruction_time                 | 60 s             | Kill instruction monitoring time. Pilot looks for kill instruction file every  |
+|                                       |                  | N seconds. The file may be placed in the run directory by an external actor    |
+|                                       |                  | (e.g. Raythena actor). When intercepted, Pilot will abort the payload.         |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| kill_instruction_filename             |pilot_kill_payload| Kill instruction file name.                                                    |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| proxy_verification_time               | 600 s            | Proxy verification time (used by monitoring) in seconds.                       |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| payload_proxy_from_server             | True             | In case payload proxy should be downloaded from the server and be verified.    |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| disk_space_verification_time          | 240 s            | Disk space monitoring time (check remaining disk space every N seconds).       |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| memory_usage_verification_time        | 60 s             | Memory usage verification time (how often the memory monitor output will be    |
+|                                       |                  | checked)                                                                       |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| process_verification_time             | 300 s            | Process verification time. This verification sets the environmental variable   |
+|                                       |                  | PILOT_MAXNPROC to the maximum number of found (child) processes corresponding  |
+|                                       |                  | to the main payload process id, PILOT_MAXNPROC may be used by the payload.     |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| output_verification_time              | 300 s            | Output file size verification time. Currently not used.                        |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| thread_check                          | 10 s             | The default thread check time in seconds, used by thread monitoring.           |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| cpu_check                             | 60 s             | The default CPU check time in seconds, used by CPU monitoring.                 |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| timing_file                           | pilot_timing.json| The timing file used to store various timing measurements.                     |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| error_log                             | piloterrorlog.txt| Optional error log. Currently not used.                                        |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+| redundant                             | (cvmfs path)     | List of redundant files and directories to be removed prior to log file        |
+|                                       |                  | creation. Currently not used.                                                  |
++---------------------------------------+------------------+--------------------------------------------------------------------------------+
+
+(more to come)
+The table below contains a list of the various pilot launch options and their descriptions.
+
+Example of pilot launch with a minimal set of options:
+
+`python pilot.py -q ANALY_CERN-PTEST --pilot-user=ATLAS`
+
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| Option                                | Default value  | Description                                                                       |
++=======================================+================+===================================================================================+
+| -a <value>                            |                | Pilot work directory                                                              |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -d                                    | False          | Enable debug mode for logging messages                                            |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -i <value>                            | PR             | Version tag (optional: RC)                                                        |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -j <value>                            | ptest          | Job prod_source_label, used to select job type from server                        |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -l <value>                            | 324000         | Pilot lifetime in seconds. queuedata.maxtime will be used if set                  |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -p <value>                            | 25443          | PanDA server port                                                                 |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -q <value>                            |                | Required: Queue name (e.g., AGLT2_TEST-condor)                                    |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -r <value>                            |                | OBSOLETE: resource name (e.g., AGLT2_TEST). Can be safely removed from pilot      |
+|                                       |                | wrapper                                                                           |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -s <value>                            |                | OBSOLETE: site name (e.g., AGLT2_TEST). Can be safely removed from pilot wrapper  |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -t                                    | True           | Disable proxy verification                                                        |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -u                                    | True           | Disable payload proxy verification                                                |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -v <value>                            | 2              | Number of getjob requests                                                         |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -w <value>                            | generic        | Pilot workflow                                                                    |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| -z                                    | True           | Disable server updates                                                            |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --allow-other-country <value>         |                | PanDA server port                                                                 |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --allow-same-user <value>             |                | Multi-jobs will only come from same taskID (and thus same user)                   |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --cacert <value>                      |                | CA certificate to use with HTTPS calls to server, commonly X509 proxy             |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --capath <value>                      |                | CA certificates path                                                              |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --cleanup <value>                     | True           | Cleanup work directory after pilot has finished                                   |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --country-group <value>               |                | Country group option for getjob request                                           |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --es-executor-type <value>            | generic        | Executor type for event service (generic or raythena)                             |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --harvester-datadir <value>           |                | Harvester data directory                                                          |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --harvester-eventstatusdump <value>   |                | Harvester event status dump json file containing processing status                |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --harvester-submit-mode <value>       | PULL           | Harvester submit mode (PUSH or PULL)                                              |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --harvester-workdir <value>           |                | Harvester work directory                                                          |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --harvester-workerattributes <value>  |                | Harvester worker attributes json file containing job status                       |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --hpc-mode <value>                    | manytoone      | HPC mode (manytoone, jumbojobs)                                                   |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --hpc-resource <value>                |                | Name of the HPC resource (e.g. Summit)                                            |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --input-dir <value>                   |                | Input directory (pilot expects to find input files here if this is specified)     |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --job-type <value>                    |                | Job type (managed, user)                                                          |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --no-pilot-log                        | False          | Do not write the pilot log to file                                                |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --output-dir <value>                  |                | Output directory (pilot expects to find output files here if this is specified)   |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --pilot-user <value>                  | generic        | Required: Pilot user, e.g. name of experiment                                     |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --queuedata-url <value>               |                | Queue data server URL (default value stored in default.cfg)                       |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --resource-type <value>               |                | Resource type; MCORE, SCORE, SCORE_HIMEM or MCORE_HIMEM                           |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --url <value>                         |                | PanDA server URL (default value stored in default.cfg)                            |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --use-https <value>                   | True           | Use HTTPS protocol for communications with server                                 |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+| --working-group <value>               |                | Working group option for getjob request                                           |
++---------------------------------------+----------------+-----------------------------------------------------------------------------------+
+
+Pilot development usually starts in personal GitHub repositories. When a pilot version is deemed stable, a pull request to the official PanDA Pilot GitHub area, specifically to the 'next' branch. When it is time for release, the 'next' branch is merged with the 'master' branch.
+
+For ATLAS, an independent cron job checks for updates in the 'master' branch (once per hour) and pulls down the source code when needed. The cron job script creates a new source area in cvmfs and also creates a corresponding tarball. It is not used in production, however, until the RC prod version is stable (below). When the pilot_version for PQ.ALL in CRIC is updated, all ATLAS PQs will use the corresponding version. There is also a default pilot version on CVMFS that need to be updated manually, in case the pilot_version set in CRIC does not exist. The pilot wrapper should default to the CVMFS version.
+
+Whenever a build of the development version of the pilot ('the dev pilot') is stable, the RC dev pilot is updated. The RC dev pilot is used for automated testing using HammerCloud on all active PanDA queues. No dev pilot is ever released until it has been running RC test jobs to minimise problems on the grid. When a release is in progress, i.e. after the GitHub PR to the master branch, an RC prod pilot version is created and copied manually to the PanDA server. The pilot wrapper will run 1% of all production jobs with this version. When it is believed to work properly, the pilot_version for PQ.ALL in CRIC is updated.
+
+A pilot release consists of the following steps
+1. Master branch update, which triggers the automatic build of pilot tarball on CVMFS (pilot3-VERSION_STRING.tar.gz)
+2. Tag creation ([see GitHub master branch code area](https://github.com/PanDAWMS/pilot3/tags))
+3. [Pypi update](https://pypi.org/project/panda-pilot/)
+4. Send release notes to panda-pilot-announce@cern.ch
+5. Update RC prod pilot (pilot3-rc.tar.gz), copy to PanDA servers
+6. ATLAS: When jobs are running with the new pilot version, send an update to the atlas-project-adc-operations@cern.ch and atlas-adc-adcos-automatic-notifications@cern.ch lists with all relevant code changes (explanations, motivations, related JIRA tickets, etc)
+7. ATLAS: When RC prod pilot version is stable, update PQ.ALL in CRICThe Pilot workflows refer to the particular run mode that the Pilot should use. This includes the Standard workflow and HPC Pilot workflow. The desired workflow is selected by the wrapper script that launches the Pilot, using option -w _workflow_ (e.g. _generic_hpc_; default: _generic_) and it determines how the jobs will be processed by selecting the corresponding Pilot module. For the HPC Pilot workflow, the HPC resource name needs to be specified using option --hpc-resource _resource_name_ (e.g. _titan_).
+
+The Standard and HPC Pilot workflows are explained in the following sections.
+
+The PanDA Pilot is written in Python. As of April 2022, the Pilot 3 is Python 3.6, 3.7, 3.8 and 3.9 compliant. There is currently a problem with 3.10 in unit tests run by GitHub Actions (internal problem on GitHub side).The following list describes the queuedata fields currently used by the Pilot.
+
+(In progress as of June 2022)
+
++----------------------------+-------------------------------------------------------------------------------------------+
+| Data member                | Meaning                                                                                   |
++============================+===========================================================================================+
+| acopytools                 | Dictionary with associated pilot copy tools; used to associate a copy tool (e.g. 'rucio') |
+|                            | with the various read/write activities                                                    |
++----------------------------+-------------------------------------------------------------------------------------------+
+| acopytools_schemas         | DEPRECATED? (Used in the pilot, but queuedata doesn't seem to contain it)                 |
++----------------------------+-------------------------------------------------------------------------------------------+
+| allow_lan                  | Allow LAN access (whatever method) for stage-in                                           |
++----------------------------+-------------------------------------------------------------------------------------------+
+| allow_wan                  | Allow WAN access (whatever method) for stage-in                                           |
++----------------------------+-------------------------------------------------------------------------------------------+
+| appdir                     | Optional string for defining the directory in which software releases are installed       |
++----------------------------+-------------------------------------------------------------------------------------------+
+| aprotocols                 | DEPRECATED? Not currently used by the Pilot                                               |
++----------------------------+-------------------------------------------------------------------------------------------+
+| astorages                  | Associated DDM storage endpoints                                                          |
++----------------------------+-------------------------------------------------------------------------------------------+
+| catchall                   | Preliminary parameters for dev/integration that may or may not become permanent parameter |
++----------------------------+-------------------------------------------------------------------------------------------+
+| cmtconfig                  | DEPRECATED? Platform information. Internal pilot name 'platform'                          |
++----------------------------+-------------------------------------------------------------------------------------------+
+| container_options          | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| container_type             | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| copytools                  | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| corecount                  | Number of cores per machine for AthenaMP use (currently ATLAS only)                       |
++----------------------------+-------------------------------------------------------------------------------------------+
+| direct_access_lan          | Boolean used to enable direct access mode over LAN                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| direct_access_wan          | Boolean used to enable direct access mode over WAN                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| environ                    | List of environment variables to be added to the payload command                          |
++----------------------------+-------------------------------------------------------------------------------------------+
+| es_stageout_gap            | Mapped from queue data's "zip_time_gap".                                                  |
++----------------------------+-------------------------------------------------------------------------------------------+
+| is_cvmfs                   | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| maxinputsize               | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| maxrss                     | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| maxtime                    | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| maxwdir                    | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| name                       | Mapped from queue data's "nickname".                                                      |
++----------------------------+-------------------------------------------------------------------------------------------+
+| pledgedcpu                 | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| resource                   | Mapped from queue data's "panda_resource"                                                 |
++----------------------------+-------------------------------------------------------------------------------------------+
+| site                       | Mapped from queue data's "atlas_site" OR 'gstat'                                          |
++----------------------------+-------------------------------------------------------------------------------------------+
+| state                      | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| status                     | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| timefloor                  | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| type                       | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+| use_pcache                 | ..                                                                                        |
++----------------------------+-------------------------------------------------------------------------------------------+
+When running in (near) real-time logging mode, the pilot (via the API:s below) sends the tail of the payload log as soon as there is a detected update. The tail is visible on the web interface (the PanDA monitor job page in the case of ATLAS) typically within a few seconds.
+
+The pilot supports three types of (near) real-time logging.
+
+1. Google Cloud Logging. Requires _google.cloud.logging_ and _google.cloud.logging_v2.handlers_ python modules. Google Cloud Platform provides a web interface for viewing the logs. Used by Rubin in production
+2. Fluentd. Requires _fluent_ python module. Tested by Rubin
+3. Logstash. Requires _logstash_ python module. Logs are sent to a logstash server at CERN. Used by ATLAS in production (both production jobs and user jobs can enable real-time logging)
+
+The logging server (url:port) must be defined in the pilot config file (_default.cfg_).
+
+# Rucio client and Rucio API
+
+If the rucio (client or API) is used for file transfers, the pilot expects several rucio environment variables to be set.
+
+* RUCIO_LOCAL_SITE_ID: (e.g. "BNL-ATLAS-OPP"). In ATLAS this is set by the local setup which is sourced before the pilot starts
+* RUCIO_ACCOUNT: Typically this would be set to 'pilot' before the pilot starts
+* RUCIO_LATITUDE and RUCIO_LONGITUDE: Optional. Only set for VP sites
+
+The pilot itself, sets RUCIO_LOGGING_FORMAT to '%(asctime)s %(levelname)s [%(message)s]'.
+
+See the [rucio client documentation](https://rucio.github.io/documentation/user/configuring_the_client/) for more details.
+Note: this page is VO specific / users of Rucio
+
+The Pilot sends detailed information about file transfers to Rucio. Here is a list of the different fields contained in the trace report.
+
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| Field name                 | Type              | Meaning                                                                                   |
++============================+===================+===========================================================================================+
+| appid                      | String            | PanDA job id                                                                              |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| catStart                   | Float             | Time stamp when Rucio has been queried for replica information                            |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| clientState                | String            | State at the time the trace is sent; e.g. INIT_REPORT, STAGEIN_FAILED, NO_REPLICA,        |
+|                            |                   | STAGEIN_NOTALLOWED, STAGEIN_ATTEMPT_FAILED, STAGEOUT_ATTEMPT_FAILED, DONE                 |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| dataset                    | String            | Dataset name (prodDBlock from job definition - or destinationDblock)                      |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| duid                       |                   | Currently not set by the Pilot                                                            |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| eventType                  | String            | Type of trace; currently the following event types are sent by the pilot (ordered by      |
+|                            |                   | frequency; in the case of user jobs, an _a is added to the type):                         |
+|                            |                   |                                                                                           |
+|                            |                   | - **get_sm_a**: stage-in inputs for user analysis jobs                                    |
+|                            |                   | - **get_sm**: stage-in inputs for non-analysis jobs                                       |
+|                            |                   | - **put_sm**: stage-out outputs for non-analysis jobs                                     |
+|                            |                   | - **get_es**: stage-in inputs for eventservice jobs                                       |
+|                            |                   | - **download**: EXPLANATION MISSING                                                       |
+|                            |                   | - **put_sm_logs**: stage-out logs for non-analysis jobs                                   |
+|                            |                   | - **put_sm_a**: stage-out outputs for analysis jobs                                       |
+|                            |                   | - **put_sm_logs_a**: stage-out logs for analysis jobs                                     |
+|                            |                   | - **upload**: EXPLANATION MISSING                                                         |
+|                            |                   | - **put_es**: stage-out outputs for eventservice jobs                                     |
+|                            |                   | - **put_sm_logs_os**: stage-out logs to objectstore                                       |
+|                            |                   |                                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| eventVersion               | String            | Pilot version                                                                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| filename                   | String            | The local file name (LFN)                                                                 |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| filesize                   | Integer           | The file size                                                                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| guid                       | String            | A unique file identifier. The guid sent with the traces has the '-' signs removed         |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| hostname                   | String            | Host name as returned by `socket.gethostbyaddr(socket.gethostname())[0]`                  |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| ip                         | String            | IP number of the local host                                                               |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| localSite                  | String            | Local site name as defined by the RUCIO_LOCAL_SITE_ID environmental variable. If this is  |
+|                            |                   | not set, then use the DDM endpoint                                                        |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| pq                         | String            | PanDA site name                                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| protocol                   | String            | Name of copy tool used by the Pilot; e.g. xrdcp                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| relativeStart              | Float             | Transfer start time. Currently the same time stamp as transferStart                       |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| remoteSite                 | String            | DDM endpoint                                                                              |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| scope                      | String            | Replica scope                                                                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| stateReason                | String            | Error message or explanation; e.g. BAD_COPYTOOL, OK, 'skip stagein file'                  |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| suspicious                 | String            | Currently not being reported by the pilot (always set to '0')                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| taskid                     | String            | PanDA task ID                                                                             |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| timeEnd                    | String            | Time stamp when transfer or replica lookup, etc has been finished/failed by the pilot     |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| timeStart                  | Float             | Start time of the trace report                                                            |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| transferStart              | Float             | Transfer start time. Currently the same time stamp as relativeStart                       |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| url                        | String            | TURL in case of direct access for a given replica                                         |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| usr                        | String            | The hash of the user DN (usrdn field); `hashlib.md5(job.prodUserID).hexdigest()`          |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| usrdn                      | String            | The distinguished name of the user (DN)                                                   |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| uuid                       | String            | The hash of the JobDefinitionID (from the job definition)                                 |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| validateStart              | Float             | Time stamp when the Pilot performs checksum verification during stage-in and stage-out    |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+| version                    | String            | Currently not used by the Pilot                                                           |
++----------------------------+-------------------+-------------------------------------------------------------------------------------------+
+The Pilot can trap the signals listed in the table below. When such a signal is received, the Pilot aborts the job, data transfer or whatever it is doing at the moment, and informs the server with the corresponding error code.
+
+| Signal     | Error code | Meaning                               |
+| ---------- | ---------- | ------------------------------------- |
+| KILLSIGNAL | 1200       | Job terminated by unknown kill signal |
+| SIGTERM    | 1201       | Job killed by signal: SIGTERM         |
+| SIGQUIT    | 1202       | Job killed by signal: SIGQUIT         |
+| SIGSEGV    | 1203       | Job killed by signal: SIGSEGV         |
+| SIGXCPU    | 1204       | Job killed by signal: SIGXCPU         |
+| USERKILL   | 1205       | Job killed by user                    |
+| SIGUSR1    | 1206       | Job killed by signal: SIGUSR1         |
+| SIGBUS     | 1207       | Job killed by signal: SIGBUS          |
+
+**Note**: error code 1205 (USERKILL) is a reserved error code and is currently only defined but handling has not been implemented.The pilot executes several special algorithms for different tasks, described in the sections below.
+
+## Adler32 checksum
+
+The checksum is calculated after a stage-in or before stage-out followed by verification against a known number. The Adler32 checksum algorithm is implemented in the pilot since it is normally not available as a command on the worker nodes. The algorithm is standard, with the addition that the pilot makes sure that the returned string is always eight characters long, i.e. it fills the leading part with zeros (e.g. '3d' -> '0000003d').
+
+## CPU consumption time
+
+The current CPU consumption time (system+user time) for a given process is calculated on the fly by looping over all of its child processes. After all child processes have been identified, the corresponding /prod/pid/stat files are parsed and the utime, stime, cutime, cstime are calculated by dividing the relevant fields from the stat files by the os.sysconf(os.sysconf_names['SC_CLK_TCK']) value. The CPU consumption time for each sub process is the sum of these values, and the wanted CPU consumption time for the given process is the sum of the sub process CPU consumption times.
+
+See also the [Timing measurements](Timing-measurements) section.
+
+## Looping job
+
+A job is considered to be looping if it has not updated any files in the work directory within the specified time. The pilot uses an internal time limit of 2h for both user analysis and production jobs. The mechanism can be turned off by using the `noLoopingCheck` task parameter (forwarded to the Pilot as `loopingCheck=False`). The internal limit can be changed in `pilot/util/default.cfg`.
+
+To find the last touched files, the following command is executed once per 15 minutes (also configurable in the Pilot config file):
+
+```
+find <workdir> -mmin -<limit>
+```
+
+where the limit is divided by 60 to convert to minutes.
+
+## Debug mode
+
+A troublesome job can be debugged live by turning on the special debug mode in the [prodtask-dev](https://prodtask-dev.cern.ch/prodjob/) page. The instruction is delivered to the pilot via the job update backchannel (i.e. in the return dictionary after an updateJob call). In this case, the pilot changes the frequency of updateJob calls to one per five minutes, and adds the tail of the latest found non-binary file in the working directory. The uploaded tail is then made visible in the corresponding PanDA monitor job page.
+
+## Memory leaks
+
+The pilot monitors the payload for possible memory leakage, if it has access to memory values returned by an external memory monitor tool. ATLAS currently uses the prmon tool. The pilot fits the PSS+SWAP values versus time. The slope gives a measure of the leakage rate. Tails are removed and the Chi2 is also calculated.The Standard workflow refers to the default workflow used on grid sites. Behind the scenes, it relies on internal python queues to keep track of the job objects, and consists of multiple steps executed in parallel using threads. Each thread polls a queue until it gets a job object to process; after processing, the result is put in another queue for further processing and the thread starts polling its input queue again. The job object itself, is an entity that contains all necessary information about running the payload such as software release version, parameters for payload setup, transfer type of input files, etc.
+
+Specifically, in this workflow the Pilot performs payload download, setup, stage-in, execution and stage-out, along with various verifications, monitoring and server job updates at selectable intervals.
+
+![Data flow](http://cern.ch/atlas-panda-pilot/images/Data_flow-updated.png)
+The figure above shows the internal generic flow of job objects. A downloaded job is inserted into the jobs queue and ends up in either the finished_jobs or failed_jobs queue. The completed_jobs queue contains a copy of a job object that has completed running (finished or failed) and is used for internal bookkeeping.# Pilot Timing
+
+The pilot sends a timing string to the server during the final job update with the following condense format:
+
+pilotTiming = time_getjob | time_stagein | time_payload | time_stageout | time_initial_setup | time_payload_setup
+
+where
+
+* time_getjob: time for getJob curl operation to finish.
+* time_stagein: time for entire stage-in to complete, including replica lookup. Note: the pilot cannot measure the time for direct i/o as this operation is handled by the transform.
+* time_payload: time for payload execution. Note: this includes any pre- or post-processing.
+* time_stageout: time for stage-out to complete, including log transfer.
+* time_initial_setup: the initial setup time is the time measured from pilot startup to the get job operation. During this time the pilot downloads queue data, checks the proxy lifetime, etc.
+* time_payload_setup: the time measured from before to after the payload setup (in case a '%H:%M:%S %Y/%m/%d'-time/date string is present at the beginning of the payload.stdout, the pilot will use it to improve the setup time measurement at the end of the payload)
+
+(as of June 2022, currently the time_total_setup is still being reported which means time_initial_setup + time_payload_setup).
+
+From pilot version 3.9.2, in the case of remote i/o verification, the time to complete the verification is subtracted from the setup time, and added to the stage-in time. Prior to this version, it was included in the setup time.
+
+# CPU Consumption
+
+The Pilot reports CPU timing information on every server update. The measurements (system+user time for all child processes) are done during running approximately once a minute (using /prod/pid/stat) and a final measurement done immediately after the payload has finished (using os.times()).
+
+Given an initial t0, user+system time is calculated like so:
+
+* t1 = os.times()
+* user_time = t1[2] - t0[2]
+* system_time = t1[3] - t0[3]
+
+The instant CPU timing calculation extracts the system+user time from /proc/pid/stat for a given pid (using os.sysconf_names['SC_CLK_TCK'] for conversion) and loops over all child process stat files.
+The Pilot may execute special utility commands, defined by the following constants (set in `pilot/util/constants.py`):
+
+```
+UTILITY_BEFORE_PAYLOAD = 1
+UTILITY_WITH_PAYLOAD = 2
+UTILITY_AFTER_PAYLOAD_STARTED = 3
+UTILITY_AFTER_PAYLOAD_STARTED2 = 4
+UTILITY_AFTER_PAYLOAD = 5
+UTILITY_AFTER_PAYLOAD_FINISHED = 6
+UTILITY_BEFORE_STAGEIN = 7
+UTILITY_WITH_STAGEIN = 8
+```
+
+The command itself is defined in `pilot/users/[user]/common.py` and returned by `get_utility_command()`. Examples of utility commands include memory monitoring (launched before payload starts, killed after payload finishes), xcache service (launched before stage-in starts, stopped after payload finishes), pre-process (launched before main payload), co-process (launched after payload started), post-process (launched after payload finishes).Note: this page is VO specific (ATLAS)
+
+To solve the problem with direct access in older ATLAS analysis releases (due to outdated/old versions of the xroot client), the Pilot can run xcache on the WN with a new version of the xroot client. The Pilot starts the xcache service before stage-in, and stops it after the payload has completed. The following commands are executed:
+
+Before stage-in:
+
+```
+export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase
+source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet
+lsetup xcache
+xcache start -d /tmp/xcache
+# sets an env with the turl to prepend
+xcache stop
+```
+
+Note: the first two lines above comes from executing the function `get_asetup(asetup=False)` (skipping sourcing of asetup.sh).
+
+After payload:
+
+```
+code
+```
