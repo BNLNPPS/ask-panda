@@ -81,9 +81,9 @@ class TaskStatusAgent:
                 logger.error(f"Failed to create cache directory {self.cache}: {e}")
                 sys.exit(1)
 
-        path = os.path.join(os.path.join(self.cache, "tasks"), str(self.taskid))
+        path = os.path.join(os.path.join(self.cache, "tasks"), str(taskid))
         if not os.path.exists(path):
-            logger.info(f"Creating directory for task {self.taskid} in cache.")
+            logger.info(f"Creating directory for task {taskid} in cache.")
             try:
                 os.makedirs(path)
             except OSError as e:

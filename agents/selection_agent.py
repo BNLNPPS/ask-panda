@@ -136,7 +136,7 @@ def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid
     return {
         "document": DocumentQueryAgent(model, session_id) if session_id else None,
         "queue": None,
-        "task": TaskStatusAgent(model, session_id, taskid, cache) if session_id and taskid else None,
+        "task": TaskStatusAgent(model, taskid, cache, session_id) if session_id and taskid else None,
         "log_analyzer": LogAnalysisAgent(model, pandaid, cache) if pandaid else None,
         "pilot_activity": None
     }
@@ -249,6 +249,14 @@ def main() -> None:
         if pandaid is None:
             return "Sorry, I need a PanDA ID to answer questions about job logs."
         question = agent.generate_question("pilotlog.txt")
+        answer = agent.ask(question)
+        logger.info(f"Answer:\n{answer}")
+        return answer
+    elif category == "task":
+        logger.info(f"Selected agent category: {category} (TaskStatusAgent)")
+        if taskid is None:
+            return "Sorry, I need a Task ID to answer questions about task status."
+        question = agent.generate_question()
         answer = agent.ask(question)
         logger.info(f"Answer:\n{answer}")
         return answer
