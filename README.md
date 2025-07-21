@@ -139,16 +139,15 @@ as a middle layer between the user, the other agents and the LLM.
 
 The selection agent is run as follows:
 ```
-python3 -m agents.selection_agent --question QUESTION --model MODEL [--session-id SESSION_ID] [--mode MODE]
+python3 -m agents.selection_agent --question QUESTION --model MODEL --session-id SESSION_ID
 ```
 where `QUESTION` is the question to be answered, `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama), and
-`SESSION_ID` and `MODE` are optional arguments. For details, see same arguments defined above.
+`SESSION_ID` is the unique identier for the conversation (i.e. continue using the same id if the conversation is ongoing).
 
 When run, the agent determines which agent to use for the given question, calls that agent and returns the answer.
 
-NOTE: Currently, only the `document_query_agent` and `log_analysis_agent` are supported, but more agents can be added in the future.
-
-[As of now, the agent only gives the name of the agent to use, but does not call it automatically. This is a work in progress.]
+**NOTE**: Currently, only the `document_query_agent` and `log_analysis_agent` are supported, but more agents can be added in the future.
+The maintenance agent is not relevant for the selection agent as it is supposed to be run from the server.
 
 # Vector store
 
