@@ -17,7 +17,7 @@ Note also that even though a "chatbot" is mentioned multiple times, the project 
 one can only submit questions in a command line interface and receive answers. The tools can nevertheless be used to build a standard
 chatbot eventually.
 
-![Ask PanDA MCP Service.](https://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/Ask_PanDA_diagram.png)
+![Ask PanDA MCP Service.](https://cern.ch/atlas-panda-pilot/images/Ask_PanDA_diagram2.png)
 
 # Features
 - **Multi-Model Support**: Interact with various AI models including OpenAI, Anthropic, Gemini, and Llama.
