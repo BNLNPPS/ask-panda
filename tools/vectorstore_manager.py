@@ -60,8 +60,11 @@ class VectorStoreManager:
         """
         # Define type for embeddings before assignment
         embeddings: Union[OpenAIEmbeddings, HuggingFaceEmbeddings]
+        # if any change is done with the embeddings, make sure to delete the old vectorstore
+        # before starting the server
         if False:  # This block is currently not executed, kept for potential future use
-            embeddings = OpenAIEmbeddings()
+            # embeddings = OpenAIEmbeddings()
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-small", request_timeout=60, chunk_size=50)
         else:
             model_name: str = "all-MiniLM-L6-v2"
             embeddings = HuggingFaceEmbeddings(model_name=model_name)
