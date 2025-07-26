@@ -1,16 +1,12 @@
 # Ask PanDA
-This project contains MCP powered tools for 1) an AI chatbot for static
-conversations and 2) an error analysis agent for PanDA jobs. The goal is to provide a simple and efficient
-way to interact with various AI models and analyze errors in PanDA jobs.
+This project contains MCP powered tools for 1) an AI chatbot agent for static
+conversations, 2) an error analysis agent for PanDA jobs and 3) a task status agent for task related queries. There is a common interface for all agents, which allows
+you to use the same command line interface for all agents. The agents can be used to interact with various AI models, including OpenAI, Anthropic, Gemini and Llama..
 
-For the AI chatbot, it is sufficient to use the agent.py and server.py files. The agent.py file contains the logic
-for the agent, while the server.py file contains the logic for the server. The server.py file is a simple FastAPI
-server that serves the agent.py file. The agent.py file contains the logic for the agent, which is a simple
-command line interface that allows you to interact with various AI models.
+The goal is to provide a simple and efficient way to interact with various AI models and analyze PanDA documentation, jobs, tasks and related errors.
 
-Similarly, the error analysis agent is a simple command line interface that allows you to interact with various AI models
-and analyze errors in PanDA jobs. The error analysis agent uses the same logic as the agent.py file, but it is
-specifically designed for analyzing errors in PanDA jobs.
+The MCP server is a simple FastAPI server that serves the agents. The agents contain the logic for different purposes (described below), and are simple
+command line interfaces that allow for interaction with various AI models.
 
 **Note**: This project is in development. It is currently using HuggingFace embedding models for static conversations.
 Note also that even though a "chatbot" is mentioned multiple times, the project is not a chatbot in the traditional sense. Currently,
