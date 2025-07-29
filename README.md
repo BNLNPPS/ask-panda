@@ -1,9 +1,9 @@
 # Ask PanDA
 This project contains MCP powered tools for 1) an AI chatbot agent for static
-conversations, 2) an error analysis agent for PanDA jobs and 3) a task status agent for task related queries. There is a common interface for all agents, which allows
+conversations, 2) an error analysis agent for PanDA jobs and 3) a data query agent for queries related to JSON data. There is a common interface for all agents, which allows
 you to use the same command line interface for all agents. The agents can be used to interact with various AI models, including OpenAI, Anthropic, Gemini and Llama..
 
-The goal is to provide a simple and efficient way to interact with various AI models and analyze PanDA documentation, jobs, tasks and related errors.
+The goal is to provide a simple and efficient way to interact with various AI models and analyze PanDA documentation, jobs, tasks, JSON and related errors.
 
 The MCP server is a simple FastAPI server that serves the agents. The agents contain the logic for different purposes (described below), and are simple
 command line interfaces that allow for interaction with various AI models.
@@ -105,14 +105,18 @@ The following pilot error codes have been verified to work with the error analys
 1099, 1104, 1137, 1150, 1152, 1201, 1213, 1235, 1236, 1305, 1322, 1324, 1354, 1361, 1368.
 ```
 
-# Task Status Agent
+#   Data Query Agent
 
-The task status agent is a tool that can be used to query the status of a PanDA task. It uses the PanDA Monitor API to
-retrieve the status of a task and returns the status as a dictionary. The agent can be run as follows:
+The data query agent is a tool that can be used to query JSON files e.g. for the status of a PanDA task
+or data contained in a JSON file (e.g. site/queue data). It uses the PanDA Monitor API to
+retrieve relevant JSON file and returns it as a python dictionary that can be analyzed by the LLM.
+The agent can be run as follows:
 ```
-python3 -m agents.task_status_agent --taskid TASKID --model MODEL --session-id SESSION_ID
+python3 -m agents.data_query_agent --taskid TASKID --model MODEL --session-id SESSION_ID  (for task related queries)
+python3 -m agents.data_query_agent --queue QUEUENAME --model MODEL --session-id SESSION_ID  (for site/queue related queries)
 ```
-where `TASKID` is the PanDA ID of the task to be queried, `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama),
+where `TASKID` is the PanDA ID of the task to be queried, `QUEUENAME` is the name of the queue to be queried,
+`MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama),
 and `SESSION_ID` is the unique identifier for the conversation (i.e. continue using the same id if the conversation is ongoing).
 
 **NOTE** This agent is early in development and is not yet fully functional, but it already gives a summary of the task status
@@ -156,7 +160,7 @@ where `QUESTION` is the question to be answered, `MODEL` is the model to be used
 
 When run, the agent determines which agent to use for the given question, calls that agent and returns the answer.
 
-**NOTE**: Currently, only the Document Query, Log Analysis and Task Status Agents are supported, but more agents
+**NOTE**: Currently, only the Document Query, Log Analysis and Data Query Agents are supported, but more agents
 can be added in the future.
 The maintenance agent is not relevant for the selection agent as it is supposed to be run from the server.
 

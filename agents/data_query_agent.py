@@ -41,7 +41,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("task_status_agent.log"),
+        logging.FileHandler("data_query_agent.log"),
         logging.StreamHandler()
     ]
 )
