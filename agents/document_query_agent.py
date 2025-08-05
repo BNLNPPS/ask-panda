@@ -68,9 +68,6 @@ class DocumentQueryAgent:
 
         Args:
             question (str): The question to ask the RAG server.
-            model (str): The model to use for generating the answer
-                         (e.g., 'openai', 'anthropic').
-            session_id (str): The session ID for tracking the conversation.
 
         Returns:
             str: The answer from the RAG server. If an error occurs during the
@@ -79,13 +76,17 @@ class DocumentQueryAgent:
         """
         server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
 
-        # Retrieve context
-        history = memory.get_history(self.session_id)
-
         # Construct prompt
         prompt = ""
-        for user_msg, agent_msg in history:
-            prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+
+        # If session_id is provided, retrieve context from memory
+        # (it might not be set e.g. from OpenWebUI since that can handle memory itself)
+        if self.session_id != "None":
+            # Retrieve context
+            history = memory.get_history(self.session_id)
+
+            for user_msg, agent_msg in history:
+                prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
         prompt += f"User: {question}\nAssistant:"
 
         try:
@@ -98,9 +99,13 @@ class DocumentQueryAgent:
                         logger.info(answer, file=sys.stderr)
                         return ""
 
-                    memory.store_turn(self.session_id, question, answer)
+                    if self.session_id != "None":
+                        memory.store_turn(self.session_id, question, answer)
 
-                    # convert to dictionary before returning
+                    # convert to dictionary before returning if necessary
+                    if self.session_id == "None":
+                        return answer
+
                     answer = {
                         "session_id": self.session_id,
                         "question": question,
