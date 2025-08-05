@@ -189,6 +189,8 @@ before running the Open Web UI.
 The Ask PanDA MCP server should be run in its own virtual environment as the Open Web UI are currently using
 very old versions of the libraries and the Ask PanDA MCP server requires more recent versions of the libraries.
 
+![Open Web UI](https://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/OpenWebUI.png)
+
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
