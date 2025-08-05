@@ -164,7 +164,7 @@ When run, the agent determines which agent to use for the given question, calls 
 can be added in the future.
 The maintenance agent is not relevant for the selection agent as it is supposed to be run from the server.
 
-# Open WebUI
+# Open Web UI
 
 A "pipe function" for Open Web UI is provided in the open-webui directory. It can be used to run the Ask PanDA agents from within
 the Open Web UI. The pipe function is a simple wrapper around the agents that allows them to be used in the Open Web UI.
