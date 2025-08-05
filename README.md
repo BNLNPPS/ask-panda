@@ -164,6 +164,31 @@ When run, the agent determines which agent to use for the given question, calls 
 can be added in the future.
 The maintenance agent is not relevant for the selection agent as it is supposed to be run from the server.
 
+# Open WebUI
+
+A "pipe function" for Open Web UI is provided in the open-webui directory. It can be used to run the Ask PanDA agents from within
+the Open Web UI. The pipe function is a simple wrapper around the agents that allows them to be used in the Open Web UI.
+
+It can be installed in the Open Web UI by copying the source code (cut-and-paste) into the Open Web UI directly.
+
+Explicit instructions:
+
+* Click on the user name on the bottom left of the UI and select "Admin Panel"
+* Select the "Functions" tab and click on the "+" sign on the top right to create a new function
+* Select "New function" and paste the Ask PanDA code into the code editor
+* Save the function and it will be available in the Open Web UI from the models drop-down menu.
+
+If you gave the function the name "Ask PanDA", it will be available as a model called "Ask PanDA".
+
+*Note*: Currently "gemini" is hardcoded in the default source code, but this can be changed to any other model by editing the source code.
+It does not yet support selecting models from the Open Web UI, but this can be added in the future.
+
+Also, since gemini is hardcoded, you also need to set the `GEMINI_API_KEY` environment variable to your Gemini API key
+before running the Open Web UI.
+
+The Ask PanDA MCP server should be run in its own virtual environment as the Open Web UI are currently using
+very old versions of the libraries and the Ask PanDA MCP server requires more recent versions of the libraries.
+
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
