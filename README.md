@@ -185,9 +185,6 @@ the PYTHONPATH environment variable to include the path to the Ask PanDA source 
 *Note*: Currently "gemini" is hardcoded in the default source code, but this can be changed to any other model by editing the source code.
 It does not yet support selecting models from the Open Web UI, but this can be added in the future.
 
-Also, since gemini is hardcoded, you also need to set the `GEMINI_API_KEY` environment variable to your Gemini API key
-before running the Open Web UI.
-
 The Ask PanDA MCP server should be run in its own virtual environment as the Open Web UI are currently using
 very old versions of the libraries and the Ask PanDA MCP server requires more recent versions of the libraries.
 
