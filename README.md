@@ -178,7 +178,9 @@ Explicit instructions:
 * Select "New function" and paste the Ask PanDA code into the code editor
 * Save the function and it will be available in the Open Web UI from the models drop-down menu.
 
-If you gave the function the name "Ask PanDA", it will be available as a model called "Ask PanDA".
+If you gave the function the name "Ask PanDA", it will be available as a model called "Ask PanDA". Before the
+Open Web UI is run, you need to set the `GEMINI_API_KEY` environment variable to your Gemini API key as well as
+the PYTHONPATH environment variable to include the path to the Ask PanDA source code.
 
 *Note*: Currently "gemini" is hardcoded in the default source code, but this can be changed to any other model by editing the source code.
 It does not yet support selecting models from the Open Web UI, but this can be added in the future.
