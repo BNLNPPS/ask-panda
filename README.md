@@ -182,10 +182,13 @@ If you gave the function the name "Ask PanDA", it will be available as a model c
 Open Web UI is run, you need to set the `GEMINI_API_KEY` environment variable to your Gemini API key as well as
 the `PYTHONPATH` environment variable to include the path to the Ask PanDA source code.
 
-*Note*: Currently "gemini" is hardcoded in the default source code, but this can be changed to any other model by editing the source code.
+*Notes*:
+* Currently "gemini" is hardcoded in the default source code, but this can be changed to any other model by editing the source code.
 It does not yet support selecting models from the Open Web UI, but this can be added in the future.
-
-The Ask PanDA MCP server should be run in its own virtual environment as the Open Web UI are currently using
+* The pipe function does not set the session ID properly (I have not figure out how to get a fixed session ID for
+a given chat yet) and therefore the context memory is not preserved between queries on the Ask PanDA side. It might not
+be needed since Open Web UI has its own context memory, but it is something to be aware of.
+* The Ask PanDA MCP server should be run in its own virtual environment as the Open Web UI are currently using
 very old versions of the libraries and the Ask PanDA MCP server requires more recent versions of the libraries.
 
 ![Open Web UI](https://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/OpenWebUI.png)
