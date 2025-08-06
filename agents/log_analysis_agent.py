@@ -33,6 +33,7 @@ from fastmcp import FastMCP
 from time import sleep
 
 from ask_panda_server import MCP_SERVER_URL, check_server_health
+from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
 from tools.tools import fetch_data, read_json_file, read_file
 
@@ -45,6 +46,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+memory = ContextMemory()
 mcp = FastMCP("panda")
 
 
@@ -53,7 +55,7 @@ class LogAnalysisAgent:
     A simple command-line agent that interacts with a RAG server to analyze log files.
     This agent fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
     """
-    def __init__(self, model: str, pandaid: str, cache: str) -> None:
+    def __init__(self, model: str, pandaid: str, cache: str, session_id: str) -> None:
         """
         Initialize the LogAnalysisAgent with a model.
 
@@ -61,6 +63,7 @@ class LogAnalysisAgent:
             model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
             pandaid (str): The PanDA job ID to analyze.
             cache (str): The location of the cache directory for storing downloaded files.
+            session_id (str): The session ID for tracking the conversation.
         """
         self.model = model  # e.g., OpenAI or Anthropic wrapper
         try:
@@ -86,6 +89,8 @@ class LogAnalysisAgent:
             except OSError as e:
                 logger.error(f"Failed to create directory {path}: {e}")
                 sys.exit(1)
+
+        self.session_id = session_id  # Session ID for tracking conversation
 
     def ask(self, question: str) -> str:
         """
@@ -135,8 +140,9 @@ class LogAnalysisAgent:
             logger.info(f"Answer from {self.model.capitalize()}:\n{formatted_answer}")
 
             # store the answer in the session memory
-            # if self.session_id != "None":
-            #    memory.store_turn(self.session_id, question, answer)
+            if self.session_id != "None":
+                memory.store_turn(self.session_id, "Investigate the job failure", formatted_answer)
+                logger.info(f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={formatted_answer}")
 
             return answer_dict
 
@@ -490,7 +496,7 @@ def main():
                         help='Session ID for the context memory')
     args = parser.parse_args()
 
-    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache)
+    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache, args.session_id)
 
     # Generate a proper question to ask the LLM based on the metadata and log files
     question = agent.generate_question(args.log_file)
