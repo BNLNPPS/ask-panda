@@ -282,7 +282,7 @@ def main():
                         help='Model to use (e.g., openai, anthropic, etc.)')
     parser.add_argument('--cache', type=str, default="cache",
                         help='Location of cache directory (default: cache)')
-    parser.add_argument('--session-id', type=str, required=True,
+    parser.add_argument('--session-id', type=str, default="None",
                         help='Session ID for the context memory')
     args = parser.parse_args()
 

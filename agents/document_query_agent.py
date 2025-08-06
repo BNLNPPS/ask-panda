@@ -167,7 +167,7 @@ def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
-    parser.add_argument('--session-id', type=str, required=True,
+    parser.add_argument('--session-id', type=str, default="None",
                         help='Session ID for the context memory')
     parser.add_argument('--question', type=str,
                         help='The question to ask the RAG server')
