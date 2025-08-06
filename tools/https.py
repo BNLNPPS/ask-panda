@@ -385,6 +385,18 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
 
     return content
 
+
+def get_base_url() -> str:
+    """
+    Get the base URL for the PanDA monitor.
+
+    :return: base URL (str).
+    """
+    # The base URL for the PanDA monitor
+    default = os.environ.get("PANDA_BASE_URL")
+
+    return "https://bigpanda.cern.ch" if not default else default
+
 # Example
 # panda_type = "job"
 # panda_id = "6473373419"

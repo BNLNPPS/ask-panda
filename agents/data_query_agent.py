@@ -29,13 +29,13 @@ import re
 import requests
 import sys
 from collections import deque
-
 from fastmcp import FastMCP
 from time import sleep
 
-from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
 from ask_panda_server import MCP_SERVER_URL, check_server_health
+from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
 from tools.tools import fetch_data, read_json_file
+from tools.https import get_base_url
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,7 +147,8 @@ class TaskStatusAgent:
 
         # Download metadata and pilot log concurrently
         workdir = os.path.join(self.cache, "tasks")
-        url = f"https://bigpanda.cern.ch/jobs/?jeditaskid={self.taskid}&json&mode=nodrop"
+        base_url = get_base_url()
+        url = f"{base_url}/jobs/?jeditaskid={self.taskid}&json&mode=nodrop"
         metadata_task = asyncio.create_task(fetch_data(self.taskid, filename="metadata.json", jsondata=True, workdir=workdir, url=url))
 
         # Wait for download to complete

@@ -33,7 +33,7 @@ import re
 from typing import Optional
 
 from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
-from tools.https import download_data
+from tools.https import download_data, get_base_url
 from tools.vectorstore_manager import VectorStoreManager
 
 logging.basicConfig(
@@ -68,10 +68,11 @@ async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache"
         return EC_OK, path
 
     if not url:
+        default = get_base_url()
         url = (
-            f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
+            f"{default}/job?pandaid={panda_id}&json"
             if jsondata
-            else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+            else f"{default}/filebrowser/?pandaid={panda_id}&json&filename={filename}"
         )
     logger.info(f"Downloading file from: {url}")
 
