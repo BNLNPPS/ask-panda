@@ -1,0 +1,7 @@
+Additional definitions that can be useful to enhance the RAG.
+
+----------------
+DEFINITION: iDDS
+iDDS is an intelligent data delivery service orchestrating workflow and data management systems to optimize resource
+usage in various workflows.
+----------------
