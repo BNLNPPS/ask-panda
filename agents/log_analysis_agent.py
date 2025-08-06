@@ -89,7 +89,7 @@ class LogAnalysisAgent:
 
     def ask(self, question: str) -> str:
         """
-        Send a question to the LLMr and retrieve the answer.
+        Send a question to the LLM and retrieve the answer.
 
         Args:
             question (str): The question to ask the RAG server.
@@ -125,6 +125,18 @@ class LogAnalysisAgent:
                 err = "Failed to store the answer as a Python dictionary."
                 logger.error(f"{err}")
                 return {'error': f"{err}"}
+
+            # format the answer for better readability
+            formatted_answer = format_answer(answer_dict)
+            if not formatted_answer:
+                logger.error(f"Failed to format the answer from the LLM using: {answer_dict}")
+                sys.exit(1)
+
+            logger.info(f"Answer from {self.model.capitalize()}:\n{formatted_answer}")
+
+            # store the answer in the session memory
+            # if self.session_id != "None":
+            #    memory.store_turn(self.session_id, question, answer)
 
             return answer_dict
 
@@ -381,6 +393,65 @@ Return only a valid Python dictionary. Here's the error description:
         return question
 
 
+def format_answer(answer: dict) -> str:
+    """
+    Format the answer dictionary into a human-readable string.
+
+    Args:
+        answer (dict): The answer dictionary returned by the LLM.
+
+    Returns:
+        str: A formatted string containing the description, non-expert guidance, and expert guidance.
+    """
+    # the dictionary wil lonly ever contain a single key-value pair
+    error_code, value = next(iter(answer.items()))
+
+    to_store = ""
+    description = value.get('description')  # str
+    if description:
+        to_store += f"Description:\n{description}\n\n"
+
+    non_expert_guidance = value.get('non_expert_guidance')  # dict
+    if non_expert_guidance:
+        problem = non_expert_guidance.get('problem')
+        if problem:
+            to_store += f"Non-expert guidance - problem:\n{problem}\n\n"
+
+        possible_causes = non_expert_guidance.get('possible_causes')
+        if possible_causes:
+            bullet_list = '\n'.join(f'* {item}' for item in possible_causes) if isinstance(possible_causes, list) else possible_causes
+            to_store += f"Non-expert guidance - possible causes:\n{bullet_list}\n\n"
+
+        recommendations = non_expert_guidance.get('recommendations')
+        if recommendations:
+            bullet_list = '\n'.join(f'* {item}' for item in recommendations) if isinstance(recommendations, list) else recommendations
+            to_store += f"Non-expert guidance - recommendations:\n{bullet_list}\n\n"
+
+    expert_guidance = value.get('expert_guidance')  # dict
+    if expert_guidance:
+        analysis = expert_guidance.get('analysis')
+        if analysis:
+            to_store += f"Expert guidance - analysis:\n{analysis}\n\n"
+
+        investigation_steps = expert_guidance.get('investigation_steps')
+        if investigation_steps:
+            bullet_list = '\n'.join(f'* {item}' for item in investigation_steps) if isinstance(investigation_steps, list) else investigation_steps
+            to_store += f"Expert guidance - investigation steps:\n{bullet_list}\n\n"
+
+        possible_scenarios = expert_guidance.get('possible_scenarios')
+        if possible_scenarios:
+            if isinstance(possible_scenarios, dict):
+                bullet_list = '\n'.join(f'* {k}: {v}' for k, v in possible_scenarios.items())
+                to_store += f"Expert guidance - possible scenarios:\n{bullet_list}\n\n"
+            elif isinstance(possible_scenarios, list):
+                bullet_list = '\n'.join(f'* {item}' for item in possible_scenarios) if isinstance(possible_scenarios, list) else possible_scenarios
+                to_store += f"Expert guidance - possible scenarios:\n{bullet_list}\n\n"
+            else:
+                to_store += f"Expert guidance - possible scenarios:\n{possible_scenarios}\n\n"
+
+    return to_store
+
+
 def main():
     """
     Check if the correct number of command-line arguments is provided.
@@ -415,8 +486,8 @@ def main():
                         help='Model to use (e.g., openai, anthropic, etc.)')
     parser.add_argument('--cache', type=str, default="cache",
                         help='Location of cache directory (default: cache)')
-    # parser.add_argument('--session-id', type=str, required=True,
-    #                     help='Session ID for the context memory')
+    parser.add_argument('--session-id', type=str, required=True,
+                        help='Session ID for the context memory')
     args = parser.parse_args()
 
     agent = LogAnalysisAgent(args.model, args.pandaid, args.cache)
@@ -427,11 +498,9 @@ def main():
 
     # Ask the question to the LLM
     answer = agent.ask(question)
-
-    logger.info(f"Answer from {args.model.capitalize()}:\n{answer}")
-
-    # store the answer in the session memory
-    # ..
+    if not answer:
+        logger.error("No answer returned from the LLM.")
+        sys.exit(1)
 
     sys.exit(0)
 
