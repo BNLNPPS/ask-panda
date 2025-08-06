@@ -22,9 +22,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-# from fastapi.requests import Request
 from agents.document_query_agent import DocumentQueryAgent
-# import json
 
 
 class Pipe:
@@ -47,17 +45,22 @@ class Pipe:
         __event_call__=None,
     ) -> Optional[dict]:
         print(f"pipe:{__name__}")
-
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
             user_valves = self.UserValves()
 
-        session_id = __user__.get("last_active_at")
-        print(f"session id={session_id}")
         model = "gemini"
-
+        user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
+        if not prompt.startswith("###"):
+            # the "last_active_at" seems to be the only realistic variable to use as chat ID
+            user_id = __user__.get("id", "anon")
+            timestamp = __user__.get("last_active_at", "unknown")
+            session_id = f"{user_id}_{timestamp}"
+        else:
+            session_id = "None"  # do not store follow-up suggestions etc from the UI
+        print(f"session id={session_id}")
         print(f"prompt: {prompt}")
 
         if user_valves.show_status and __event_emitter__:
@@ -67,6 +70,7 @@ class Pipe:
                     "data": {"description": "Processing your input", "done": False},
                 }
             )
+            print(f"__event_emitter__={__event_emitter__}")
 
         try:
             agent = DocumentQueryAgent(model, session_id)
@@ -83,9 +87,10 @@ class Pipe:
         #                     }
         print(f"answer dictionary: {answer}")
 
-        print(f"type={type(answer)}")
         if isinstance(answer, dict):
             final_answer = answer.get("answer", "No answer provided")
+        else:
+            final_answer = answer
 
         if user_valves.show_status and __event_emitter__:
             await __event_emitter__(
