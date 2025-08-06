@@ -52,11 +52,12 @@ The update and usage is using thread locking, so the server will not crash if a 
 
 The server will write all log messages to the `ask_panda_server_log.txt` file in the current directory.
 
-A session ID is used to keep track of the conversation, i.e. to enable context memory. The context memory is stored in an sqlite database.
+An optional session ID is used to keep track of the conversation, i.e. to enable context memory. The context memory is stored in an sqlite database.
+If the session ID is not provided, a new session will be created for each query.
 
 2. Run the Agent (example queries):
 ```
-python3 -m agents.document_query_agent --question=QUESTION --model=MODEL --session-id=SESSION_ID
+python3 -m agents.document_query_agent --question=QUESTION --model=MODEL [--session-id=SESSION_ID]
 
 Examples:
 python3 -m agents.document_query_agent  --question="What is PanDA?" --model=openai --session-id=111
@@ -85,7 +86,7 @@ The agent returns the answer as a dictionary.
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python3 -m agents.log_analysis_agent [-h] --pandaid PANDAID --model MODEL -session-id=SESSION_ID [--log-file LOG_FILE]
+python3 -m agents.log_analysis_agent [-h] --pandaid PANDAID --model MODEL [-session-id=SESSION_ID] [--log-file LOG_FILE]
 ```
 
 By providing a session ID, the conversation will be tracked and the Document Query Agent will be able to answer follow-up questions
@@ -116,8 +117,8 @@ or data contained in a JSON file (e.g. site/queue data). It uses the PanDA Monit
 retrieve relevant JSON file and returns it as a python dictionary that can be analyzed by the LLM.
 The agent can be run as follows:
 ```
-python3 -m agents.data_query_agent --taskid TASKID --model MODEL --session-id SESSION_ID  (for task related queries)
-python3 -m agents.data_query_agent --queue QUEUENAME --model MODEL --session-id SESSION_ID  (for site/queue related queries)
+python3 -m agents.data_query_agent --taskid TASKID --model MODEL [--session-id SESSION_ID]  (for task related queries)
+python3 -m agents.data_query_agent --queue QUEUENAME --model MODEL [--session-id SESSION_ID] (for site/queue related queries)
 ```
 where `TASKID` is the PanDA ID of the task to be queried, `QUEUENAME` is the name of the queue to be queried,
 `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama),
@@ -157,7 +158,7 @@ as a middle layer between the user, the other agents and the LLM.
 
 The selection agent is run as follows:
 ```
-python3 -m agents.selection_agent --question QUESTION --model MODEL --session-id SESSION_ID
+python3 -m agents.selection_agent --question QUESTION --model MODEL [--session-id SESSION_ID]
 ```
 where `QUESTION` is the question to be answered, `MODEL` is the model to be used (e.g. openai, anthropic, gemini, llama), and
 `SESSION_ID` is the unique identier for the conversation (i.e. continue using the same id if the conversation is ongoing).
