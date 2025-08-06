@@ -101,6 +101,8 @@ class DocumentQueryAgent:
 
                     if self.session_id != "None":
                         memory.store_turn(self.session_id, question, answer)
+                        logger.info(
+                            f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={answer}")
 
                     # convert to dictionary before returning if necessary
                     if self.session_id == "None":
