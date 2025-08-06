@@ -52,7 +52,7 @@ The update and usage is using thread locking, so the server will not crash if a 
 
 The server will write all log messages to the `ask_panda_server_log.txt` file in the current directory.
 
-A (random) session ID is used to keep track of the conversation, i.e. to enable context memory. The context memory is stored in an sqlite database.
+A session ID is used to keep track of the conversation, i.e. to enable context memory. The context memory is stored in an sqlite database.
 
 2. Run the Agent (example queries):
 ```
@@ -85,8 +85,12 @@ The agent returns the answer as a dictionary.
 
 2. Run the Error Analysis Agent with a custom model:
 ```
-python3 -m agents.log_analysis_agent [-h] --pandaid PANDAID --model MODEL [--log-file LOG_FILE]
+python3 -m agents.log_analysis_agent [-h] --pandaid PANDAID --model MODEL -session-id=SESSION_ID [--log-file LOG_FILE]
 ```
+
+By providing a session ID, the conversation will be tracked and the Document Query Agent will be able to answer follow-up questions
+(if the same session ID is used).
+
 **Note**: The error analysis agent will use the provided PanDA ID to fetch a log files from
 the given PanDA job. The script will then extract the error codes from the log file, along with relevant/nearby log message
 and build a context for the model. The script will then use the provided model to analyze the reason for the error.
