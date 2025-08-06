@@ -198,6 +198,13 @@ very old versions of the libraries and the Ask PanDA MCP server requires more re
 
 ![Open Web UI](https://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/OpenWebUI.png)
 
+The Open Web UI web server (installed separately) can be started as follows:
+```
+open-webui serve
+```
+
+(Let it run in it's own virtual environment - it wil produce a lot of output).
+
 # Vector store
 
 Note that the vector store (Chroma DB) is created and maintained by a manager. The contents of the vector store are stored in the `vectorstore` directory
