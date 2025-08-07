@@ -88,7 +88,7 @@ class DocumentQueryAgent:
             for user_msg, agent_msg in history:
                 prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
         prompt += f"User: {question}\nAssistant:"
-        prompt += "If the question is unclear, reply with \'How can I help you with PanDA?\'.\n"
+        # prompt += "If the question is unclear, reply with \'How can I help you with PanDA?\'.\n"
 
         try:
             response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=30)
