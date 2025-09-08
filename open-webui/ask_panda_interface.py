@@ -37,28 +37,26 @@ class Pipe:
     def __init__(self):
         self.valves = self.Valves()
 
-    async def pipe(
-        self,
-        body: dict,
-        __user__=None,
-        __event_emitter__=None,
-        __event_call__=None,
-    ) -> Optional[dict]:
-        print(f"pipe:{__name__}")
+    async def pipe(self,
+                   body: dict,
+                   __user__: dict = None,
+                   __metadata__: dict = None,
+                   __messages__: dict = None,
+                   __event_emitter__: dict = None,
+                   __event_call__: dict = None) -> Optional[dict]:
+        chat_id = (__metadata__ or {}).get("chat_id")
+        print(f"chat_id:{chat_id}")
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
             user_valves = self.UserValves()
 
         model = "gemini"
-        user_id = __user__.get("id")
+        # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
         if not prompt.startswith("###"):
             # the "last_active_at" seems to be the only realistic variable to use as chat ID
-            user_id = __user__.get("id", "anon")
-            timestamp = __user__.get("last_active_at", "unknown")
-            session_id = f"{user_id}_{timestamp}"
-            # session_id = f"{user_id}_2"
+            session_id = chat_id
         else:
             session_id = "None"  # do not store follow-up suggestions etc from the UI
         print(f"session id={session_id}")
@@ -76,7 +74,6 @@ class Pipe:
         try:
             agents = figure_out_agents(prompt, model, session_id, cache="/Users/nilsnilsson/Development/ask-panda/cache")
             selection_agent = SelectionAgent(agents, model)
-
             category = selection_agent.answer(prompt)
             agent = agents.get(category)
             print(f"Selected agent category: {category}")
