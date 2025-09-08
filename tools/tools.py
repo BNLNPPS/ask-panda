@@ -64,7 +64,7 @@ def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", json
         exit_code (int): The exit code indicating the status of the operation.
     """
     path = os.path.join(os.path.join(workdir, str(panda_id)), filename)
-    if os.path.exists(path):
+    if os.path.exists(path) and 'metadata' not in filename:  # always download metadata files
         logger.info(f"File {filename} for PandaID {panda_id} already exists in {path}.")
         return EC_OK, path
 
