@@ -29,13 +29,13 @@ import re
 import requests
 import sys
 from collections import deque
-from fastmcp import FastMCP
+# from fastmcp import FastMCP
 from time import sleep
 
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
-from tools.tools import fetch_data, read_json_file
 from tools.https import get_base_url
+from tools.server_utils import MCP_SERVER_URL, check_server_health
+from tools.tools import fetch_data, read_json_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,7 +47,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("panda")
+# mcp = FastMCP("panda")
 
 
 class TaskStatusAgent:

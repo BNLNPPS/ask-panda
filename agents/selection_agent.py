@@ -30,8 +30,8 @@ from time import sleep
 from agents.document_query_agent import DocumentQueryAgent
 from agents.log_analysis_agent import LogAnalysisAgent
 from agents.data_query_agent import TaskStatusAgent
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.errorcodes import EC_TIMEOUT
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(

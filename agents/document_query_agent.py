@@ -28,9 +28,9 @@ import sys
 from json import JSONDecodeError
 from time import sleep
 
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_TIMEOUT
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(

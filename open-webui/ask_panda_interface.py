@@ -74,7 +74,7 @@ class Pipe:
             print(f"__event_emitter__={__event_emitter__}")
 
         try:
-            agents = figure_out_agents(prompt, model, session_id)
+            agents = figure_out_agents(prompt, model, session_id, cache="/Users/nilsnilsson/Development/ask-panda/cache")
             selection_agent = SelectionAgent(agents, model)
 
             category = selection_agent.answer(prompt)
@@ -92,10 +92,12 @@ class Pipe:
                 question = agent.generate_question()
                 answer = agent.ask(question)
             else:
-                print("Not yet implemented")
+                answer = "Not yet implemented"
+                print(answer)
                 return "Sorry, I don’t have enough information to answer that kind of question."
         except Exception as e:
-            final_answer = f"[ERROR] {type(e).__name__}: {str(e)}"
+            answer = f"[ERROR] {type(e).__name__}: {str(e)}"
+            final_answer = answer
 
         # the returned answer is a dictionary with the format
         #                     answer = {

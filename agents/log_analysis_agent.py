@@ -22,19 +22,19 @@
 
 import argparse
 import ast
-import asyncio
+# import asyncio
 import logging
 import os
 import re
 import requests
 import sys
 from collections import deque
-from fastmcp import FastMCP
+# from fastmcp import FastMCP
 from time import sleep
 
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 from tools.tools import fetch_data, read_json_file, read_file
 
 logging.basicConfig(
@@ -47,7 +47,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 memory = ContextMemory()
-mcp = FastMCP("panda")
+# mcp = FastMCP("panda")
 
 
 class LogAnalysisAgent:
@@ -144,11 +144,14 @@ class LogAnalysisAgent:
                 memory.store_turn(self.session_id, "Investigate the job failure", formatted_answer)
                 logger.info(f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={formatted_answer}")
 
-            return answer_dict
+            return formatted_answer
+            # return answer_dict
 
         return {'error': f"requests.post() error: {response.text}"}
 
-    async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
+    # async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
+
+    def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
         """
         Fetches all files and metadata from PanDA for a given job ID.
 
@@ -165,12 +168,14 @@ class LogAnalysisAgent:
 
         # Download metadata and pilot log concurrently
         workdir = os.path.join(self.cache, "jobs")
-        metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir))
-        pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir))
+        # metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir))
+        # pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir))
 
         # Wait for both downloads to complete
-        metadata_success, metadata_message = await metadata_task
-        pilot_log_success, pilot_log_message = await pilot_log_task
+        # metadata_success, metadata_message = await metadata_task
+        # pilot_log_success, pilot_log_message = await pilot_log_task
+        metadata_success, metadata_message = fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir)
+        pilot_log_success, pilot_log_message = fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir)
 
         if pilot_log_success != 0:
             logger.warning(f"Failed to fetch the pilot log file for PandaID {self.pandaid} - will only use metadata for error analysis.")
@@ -368,7 +373,8 @@ Return only a valid Python dictionary. Here's the error description:
             str: A formatted question string to be sent to the LLM.
         """
         # Fetch the files from PanDA
-        exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data(log_file))
+        # exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data(log_file))
+        exit_code, file_dictionary, metadata_dictionary = self.fetch_all_data(log_file)
         if exit_code == EC_NOTFOUND:
             logger.warning(
                 f"No log files found for PandaID {self.pandaid} - will proceed with only superficial knowledge of failure.")

@@ -47,7 +47,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
+# async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
+def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
     """
     Fetches a given file from PanDA.
 
