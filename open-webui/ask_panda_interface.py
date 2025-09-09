@@ -37,14 +37,19 @@ class Pipe:
     def __init__(self):
         self.valves = self.Valves()
 
-    async def pipe(self,
-                   body: dict,
-                   __user__: dict = None,
-                   __metadata__: dict = None,
-                   __messages__: dict = None,
-                   __event_emitter__: dict = None,
-                   __event_call__: dict = None) -> Optional[dict]:
+    async def pipe(
+        self,
+        body: dict,
+        __user__: dict = None,
+        __metadata__: dict = None,
+        __messages__: dict = None,
+        __event_emitter__: dict = None,
+        __event_call__: dict = None,
+    ) -> Optional[dict]:
         chat_id = (__metadata__ or {}).get("chat_id")
+        meta_type = (__metadata__ or {}).get(
+            "type"
+        )  # may be "user_response" for real turns
         print(f"chat_id:{chat_id}")
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
@@ -54,13 +59,21 @@ class Pipe:
         # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
+
+        # --- NEW: detect follow-up/aux calls ---
+        # Treat UI-generated follow-ups (###...) or any non-user_response meta_type as "follow-up mode"
+        is_followup = bool(
+            prompt.startswith("###") or (meta_type and meta_type != "user_response")
+        )
+
         if not prompt.startswith("###"):
-            # the "last_active_at" seems to be the only realistic variable to use as chat ID
             session_id = chat_id
         else:
             session_id = "None"  # do not store follow-up suggestions etc from the UI
+
         print(f"session id={session_id}")
         print(f"prompt: {prompt}")
+        print(f"is_followup: {is_followup} (meta_type={meta_type})")  # NEW: debug
 
         if user_valves.show_status and __event_emitter__:
             await __event_emitter__(
@@ -72,14 +85,35 @@ class Pipe:
             print(f"__event_emitter__={__event_emitter__}")
 
         try:
-            agents = figure_out_agents(prompt, model, session_id, cache="/Users/nilsnilsson/Development/ask-panda/cache")
+            agents = figure_out_agents(
+                prompt,
+                model,
+                session_id,
+                cache="/Users/nilsnilsson/Development/ask-panda/cache",
+            )
             selection_agent = SelectionAgent(agents, model)
             category = selection_agent.answer(prompt)
+
+            # --- NEW: if a follow-up would route to log_analyzer, override to document ---
+            if is_followup and category == "log_analyzer":
+                print(
+                    "Follow-up detected: overriding category 'log_analyzer' -> 'document'"
+                )
+                category = "document"
+
             agent = agents.get(category)
             print(f"Selected agent category: {category}")
+
+            # --- OPTIONAL: normalize follow-up prompt for document agent by stripping leading ### ---
+            doc_prompt = (
+                prompt.lstrip("#").strip()
+                if (is_followup and category == "document")
+                else prompt
+            )
+
             if category == "document":
                 print(f"Selected agent category: {category} (DocumentQueryAgent)")
-                answer = agent.ask(prompt)
+                answer = agent.ask(doc_prompt)  # use normalized prompt on follow-ups
             elif category == "log_analyzer":
                 print(f"Selected agent category: {category} (LogAnalysisAgent)")
                 question = agent.generate_question("pilotlog.txt")
