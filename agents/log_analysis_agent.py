@@ -429,7 +429,9 @@ class LogAnalysisAgent:
         piloterrorcode = metadata_dictionary.get("piloterrorcode", "")
         question += f"The pilot error code is {piloterrorcode}.\n\n"
         question += """
-    Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
+Do not wrap the dictionary in Markdown (no triple backticks, no "```python"), but
+return the dictionary with field names and values using HTML tags for bold, e.g., <b>description</b>.
+
 The dictionary should have the error code as the key (an integer), and its value should include the following fields:
 
     "description": A short summary of the error in plain English.
