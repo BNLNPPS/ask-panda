@@ -154,9 +154,12 @@ class LogAnalysisAgent:
 
     # async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
 
-    def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
+    def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None, str]:
         """
         Fetches all files and metadata from PanDA for a given job ID.
+
+        The function might update the log_file name to fetch based on the job's error code,
+        so it must also return the actual log file name used since that will be used later on.
 
         Args:
             log_file (str): The name of the log file to fetch.
@@ -165,6 +168,7 @@ class LogAnalysisAgent:
             Exit code (int): The exit code indicating the status of the operation.
             File dictionary (dict): A dictionary containing the file names and their corresponding paths.
             Metadata dictionary (dict): A dictionary containing the relevant metadata for the job.
+            Log file (str): The actual log file name used for fetching.
         """
         _metadata_dictionary = {}
         _file_dictionary = {}
@@ -180,7 +184,7 @@ class LogAnalysisAgent:
         metadata_success, metadata_message = fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir)
         if metadata_success != 0:
             logger.warning(f"Failed to fetch metadata for PandaID {self.pandaid} - will not be able to analyze the job failure.")
-            return EC_NOTFOUND, _file_dictionary, _metadata_dictionary
+            return EC_NOTFOUND, _file_dictionary, _metadata_dictionary, log_file
         logger.info(f"Downloaded JSON file: {metadata_message}")
         _file_dictionary["json"] = metadata_message
 
@@ -188,11 +192,26 @@ class LogAnalysisAgent:
         job_data = read_json_file(metadata_message)
         if not job_data:
             logger.warning(f"Error: Failed to read the JSON data from {metadata_message}.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
         # what happened to the job - check the status
         jobstatus = job_data['job'].get('jobstatus', 'unknown').lower()
         logger.info(f"Job status: {jobstatus}")
+
+        try:
+            _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
+            _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
+            _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
+            _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
+            _metadata_dictionary['jobstatus'] = jobstatus
+        except KeyError as e:
+            logger.warning(f"Error: Missing key in JSON data: {e}")
+            return EC_UNKNOWN_ERROR, None, None, log_file
+
+        # update the log file for user payload failures
+        if _metadata_dictionary.get("piloterrorcode", 0) == 1305:
+            log_file = "payload.stdout"
+            logger.info(f"Updated log file to fetch for user payload failure: {log_file}")
 
         # only download the log file for failed jobs (otherwise all relevant info is in the metadata file)
         if jobstatus == 'failed':
@@ -205,36 +224,26 @@ class LogAnalysisAgent:
 
         # if not job_data['job']['jobstatus'] == 'failed':
         #     logger.warning(f"Error: The job with PandaID {self.pandaid} is not in a failed state - nothing to explain.")
-        #     return EC_UNKNOWN_ERROR, None, None
-
-        try:
-            _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
-            _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
-            _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
-            _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
-            _metadata_dictionary['jobstatus'] = jobstatus
-        except KeyError as e:
-            logger.warning(f"Error: Missing key in JSON data: {e}")
-            return EC_UNKNOWN_ERROR, None, None
+        #     return EC_UNKNOWN_ERROR, None, None, log_file
 
         # less info is needed for jobs that did not fail
         if jobstatus not in ['failed', 'holding', 'cancelled']:
             _metadata_dictionary['metadata'] = job_data['job'].copy()
-            return EC_OK, _file_dictionary, _metadata_dictionary
+            return EC_OK, _file_dictionary, _metadata_dictionary, log_file
 
         # Fetch pilot error descriptions
         path = os.path.join(self.cache, "pilot_error_codes_and_descriptions.json")
         pilot_error_descriptions = read_json_file(path)
         if not pilot_error_descriptions:
             logger.warning("Error: Failed to read the pilot error descriptions.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
         # Fetch transform error descriptions
         path = os.path.join(self.cache, "trf_error_codes_and_descriptions.json")
         transform_error_descriptions = read_json_file(path)
         if not transform_error_descriptions:
             logger.warning("Error: Failed to read the transform error descriptions.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
         # Extract relevant metadata from the JSON data
         try:
@@ -242,11 +251,62 @@ class LogAnalysisAgent:
             _metadata_dictionary["trferrordescription"] = transform_error_descriptions.get(str(_metadata_dictionary.get("exeerrorcode")))
         except KeyError as e:
             logger.warning(f"Error: Missing key in JSON data: {e}")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
-        return EC_OK, _file_dictionary, _metadata_dictionary
+        return EC_OK, _file_dictionary, _metadata_dictionary, log_file
 
-    def extract_preceding_lines_streaming(self, log_file: str, error_pattern: str, num_lines: int = 20, output_file: str = None):
+    def extract_preceding_lines_streaming(
+            self,
+            log_file: str,
+            error_pattern: str,
+            num_lines: int = 30,
+            output_file: str = None
+    ):
+        """
+        Extracts the preceding lines from a log file when a specific error pattern is found.
+
+        Special case:
+            If error_pattern == "" and "payload" in log_file, simply return the last `num_lines` lines.
+
+        Args:
+            log_file (str): The path to the log file to be analyzed.
+            error_pattern (str): The regular expression pattern to search for in the log file.
+            num_lines (int): The number of preceding lines to extract (default is 30).
+            output_file (str, optional): If provided, the extracted lines will be saved to this file.
+        """
+        logger.info(f"Searching for error pattern '{error_pattern}' in log file '{log_file}'.")
+
+        # Special case: just return last num_lines from payload logs
+        if error_pattern == "" and "payload" in log_file:
+            num_lines = 100
+            with open(log_file, 'r', encoding='utf-8') as file:
+                lines = deque(file, maxlen=num_lines)  # keeps last num_lines lines
+            if output_file:
+                with open(output_file, 'w') as out_file:
+                    out_file.writelines(lines)
+                logger.info(f"Last {num_lines} lines saved to: {output_file}")
+            else:
+                logger.warning("".join(lines))
+            return
+
+        # Normal case: search for error pattern
+        buffer = deque(maxlen=num_lines)
+        pattern = re.compile(error_pattern)
+
+        with open(log_file, 'r', encoding='utf-8') as file:
+            for line in file:
+                buffer.append(line)
+                if pattern.search(line):
+                    # Match found; output the preceding lines
+                    if output_file:
+                        with open(output_file, 'w') as out_file:
+                            out_file.writelines(buffer)
+                        logger.info(f"Extracted lines saved to: {output_file}")
+                    else:
+                        logger.warning("".join(buffer))
+                    return
+
+    def extract_preceding_lines_streaming_old(self, log_file: str, error_pattern: str, num_lines: int = 30, output_file: str = None):
         """
         Extracts the preceding lines from a log file when a specific error pattern is found.
 
@@ -409,8 +469,8 @@ Return only a valid Python dictionary. Here's the error description:
             str: A formatted question string to be sent to the LLM.
         """
         # Fetch the files from PanDA
-        # exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data(log_file))
-        exit_code, file_dictionary, metadata_dictionary = self.fetch_all_data(log_file)
+        # exit_code, file_dictionary, metadata_dictionary, log_file = asyncio.run(self.fetch_all_data(log_file))
+        exit_code, file_dictionary, metadata_dictionary, log_file = self.fetch_all_data(log_file)
         if exit_code == EC_NOTFOUND:
             logger.warning(
                 f"No log files found for PandaID {self.pandaid} - will proceed with only superficial knowledge of failure.")
@@ -430,8 +490,13 @@ Return only a valid Python dictionary. Here's the error description:
             log_file_path = file_dictionary.get(log_file) if file_dictionary else None
             if log_file_path:
                 # Create an output file for the log extracts
-                error_string = self.get_relevant_error_string(metadata_dictionary)
-                self.extract_preceding_lines_streaming(log_file_path, error_string[:40], output_file=output_file)
+                if "pilotlog" in log_file:
+                    error_string = self.get_relevant_error_string(metadata_dictionary)
+                    if error_string:
+                        error_string = error_string[:40]  # Limit to first 40 characters
+                else:
+                    error_string = ""  # not needed for payload logs
+                self.extract_preceding_lines_streaming(log_file_path, error_string, output_file=output_file)
             if not os.path.exists(output_file):
                 logger.info("The error string was not found in the log file, so no output file was created.")
                 output_file = None
