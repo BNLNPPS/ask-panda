@@ -33,7 +33,7 @@ import re
 from typing import Optional
 
 from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
-from tools.https import download_data
+from tools.https import download_data, get_base_url
 from tools.vectorstore_manager import VectorStoreManager
 
 logging.basicConfig(
@@ -47,7 +47,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
+# async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
+def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:
     """
     Fetches a given file from PanDA.
 
@@ -63,15 +64,16 @@ async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache"
         exit_code (int): The exit code indicating the status of the operation.
     """
     path = os.path.join(os.path.join(workdir, str(panda_id)), filename)
-    if os.path.exists(path):
+    if os.path.exists(path) and 'metadata' not in filename:  # always download metadata files
         logger.info(f"File {filename} for PandaID {panda_id} already exists in {path}.")
         return EC_OK, path
 
     if not url:
+        default = get_base_url()
         url = (
-            f"https://bigpanda.cern.ch/job?pandaid={panda_id}&json"
+            f"{default}/job?pandaid={panda_id}&json"
             if jsondata
-            else f"https://bigpanda.cern.ch/filebrowser/?pandaid={panda_id}&json&filename={filename}"
+            else f"{default}/filebrowser/?pandaid={panda_id}&json&filename={filename}"
         )
     logger.info(f"Downloading file from: {url}")
 

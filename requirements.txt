@@ -1,5 +1,5 @@
 anthropic
-chromadb
+chromadb==0.6.3
 faiss-cpu
 fastapi
 fastmcp
@@ -9,6 +9,7 @@ langchain_community
 langchain-chroma
 langchain-huggingface
 langchain-openai
+mistralai
 numpy<2
 openai
 psutil

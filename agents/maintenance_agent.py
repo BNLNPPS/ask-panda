@@ -30,8 +30,8 @@ from time import sleep
 
 from tools.errorcodes import EC_TIMEOUT
 from tools.https import download_data
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 from tools.tools import reformat_errors
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 
 logging.basicConfig(
     level=logging.INFO,

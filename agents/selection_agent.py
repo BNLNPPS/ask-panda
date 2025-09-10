@@ -29,8 +29,9 @@ from time import sleep
 
 from agents.document_query_agent import DocumentQueryAgent
 from agents.log_analysis_agent import LogAnalysisAgent
-from ask_panda_server import MCP_SERVER_URL, check_server_health
+from agents.data_query_agent import TaskStatusAgent
 from tools.errorcodes import EC_TIMEOUT
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(
@@ -45,9 +46,10 @@ logger = logging.getLogger(__name__)
 
 
 class SelectionAgent:
-    def __init__(self, agents: dict, model):
+    def __init__(self, agents: dict, model: str, session_id: str = None) -> None:
         self.agents = agents  # dict like {"document": ..., "queue": ...}
         self.model = model        # e.g., OpenAI or Anthropic wrapper
+        self.session_id = session_id  # Session ID for tracking conversation
 
     def classify_question(self, question: str) -> str:
         prompt = f"""
@@ -68,13 +70,13 @@ Classify the following question:
 
 Output only one of the categories: document, queue, task, log, or pilot.
 """
-        result = self.ask(prompt).strip().lower()
+        result = self.ask(prompt, returnstring=True).strip().lower()
         return result if result in self.agents else "document"
 
     def answer(self, question: str) -> str:
         return self.classify_question(question)
 
-    def ask(self, question: str) -> str:
+    def ask(self, question: str, returnstring=False) -> str or dict:
         """
         Send a question to the LLM via the MCP server and retrieve the answer.
 
@@ -82,9 +84,8 @@ Output only one of the categories: document, queue, task, log, or pilot.
             question (str): The question to ask the LLM.
 
         Returns:
-            str: The answer from theLLM. If an error occurs during the
-            request, or if the server responds with an error, a string
-            prefixed with "Error:" is returned detailing the issue.
+            str or dict: The answer from the LLM, or a dictionary containing the session ID, if
+            returnstring is False. If returnstring is True, returns the answer as a string.
         """
         server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
 
@@ -96,7 +97,17 @@ Output only one of the categories: document, queue, task, log, or pilot.
             if response.ok:
                 try:
                     # Store interaction
-                    return response.json()["answer"]
+                    _answer = response.json()["answer"]
+                    if returnstring:
+                        return _answer
+
+                    answer = {
+                        "session_id": self.session_id,
+                        "question": question,
+                        "model": self.model,
+                        "answer": _answer
+                    }
+                    return answer
                 except JSONDecodeError:  # Changed to use imported JSONDecodeError
                     return "Error: Could not decode JSON response from server."
                 except KeyError:
@@ -133,10 +144,10 @@ def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid
         dict: A dictionary mapping agent categories to their respective agent classes.
     """
     return {
-        "document": DocumentQueryAgent(model, session_id) if session_id else None,
+        "document": DocumentQueryAgent(model, session_id),
         "queue": None,
-        "task": None,
-        "log_analyzer": LogAnalysisAgent(model, pandaid, cache) if pandaid else None,
+        "task": TaskStatusAgent(model, taskid, cache, session_id) if session_id and taskid else None,
+        "log_analyzer": LogAnalysisAgent(model, pandaid, cache, session_id) if pandaid else None,
         "pilot_activity": None
     }
 
@@ -177,6 +188,22 @@ def extract_task_id(text: str) -> int or None:
     return None
 
 
+def figure_out_agents(question: str, model: str, session_id: str, cache: str = None):
+    """
+    Determine the appropriate agent to handle the given question.
+    Args:
+        question:
+
+    Returns:
+
+    """
+    # does the question contain a job or task id?
+    # use a regex to extract "job NNNNN" from args.question
+    pandaid = extract_job_id(question)
+    taskid = extract_task_id(question)
+    return get_agents(model, session_id, pandaid, taskid, cache)
+
+
 def main() -> None:
     """
     Parse command-line arguments, call the RAG server, and print the response.
@@ -208,7 +235,7 @@ def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
-    parser.add_argument('--session-id', type=str, required=True,
+    parser.add_argument('--session-id', type=str, default="None",
                         help='Session ID for the context memory')
     parser.add_argument('--question', type=str, required=True,
                         help='The question to ask the RAG server')
@@ -251,12 +278,20 @@ def main() -> None:
         answer = agent.ask(question)
         logger.info(f"Answer:\n{answer}")
         return answer
+    elif category == "task":
+        logger.info(f"Selected agent category: {category} (TaskStatusAgent)")
+        if taskid is None:
+            return "Sorry, I need a Task ID to answer questions about task status."
+        question = agent.generate_question()
+        answer = agent.ask(question)
+        logger.info(f"Answer:\n{answer}")
+        return answer
     else:
         logger.warning("Not yet implemented")
     if agent is None:
         return "Sorry, I don’t have enough information to answer that kind of question."
 
-    return {'error': 'Sorry, I don’t have enough information to answer that kind of question.'}
+    return "Sorry, I found no agent to answer that kind of question."
 
 
 if __name__ == "__main__":

@@ -28,9 +28,9 @@ import sys
 from json import JSONDecodeError
 from time import sleep
 
-from ask_panda_server import MCP_SERVER_URL, check_server_health
 from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_TIMEOUT
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 
 # mcp = FastMCP("panda") # Removed unused instance
 logging.basicConfig(
@@ -68,9 +68,6 @@ class DocumentQueryAgent:
 
         Args:
             question (str): The question to ask the RAG server.
-            model (str): The model to use for generating the answer
-                         (e.g., 'openai', 'anthropic').
-            session_id (str): The session ID for tracking the conversation.
 
         Returns:
             str: The answer from the RAG server. If an error occurs during the
@@ -79,15 +76,22 @@ class DocumentQueryAgent:
         """
         server_url = os.getenv("MCP_SERVER_URL", f"{MCP_SERVER_URL}/rag_ask")
 
-        # Retrieve context
-        history = memory.get_history(self.session_id)
-
         # Construct prompt
         prompt = ""
-        for user_msg, agent_msg in history:
-            prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
-        prompt += f"User: {question}\nAssistant:"
 
+        # If session_id is provided, retrieve context from memory
+        # (it might not be set e.g. from OpenWebUI since that can handle memory itself)
+        if self.session_id != "None":
+            # Retrieve context
+            history = memory.get_history(self.session_id)
+
+            for user_msg, agent_msg in history:
+                prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+        prompt += f"User: {question}\nAssistant:"
+        # prompt += "If the question is unclear, reply with \'How can I help you with PanDA?\'.\n"
+        prompt += "You are a friendly and helpful assistant that answers questions about the PanDA system."
+        prompt += "Answer the question from the user in as detailed way as possible, using the provided documentation."
+        prompt += "Be sure to include any image references (including in markdown format) in your answer if they are mentioned in the documentation."
         try:
             response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=30)
             if response.ok:
@@ -98,9 +102,15 @@ class DocumentQueryAgent:
                         logger.info(answer, file=sys.stderr)
                         return ""
 
-                    memory.store_turn(self.session_id, question, answer)
+                    if self.session_id != "None":
+                        memory.store_turn(self.session_id, question, answer)
+                        logger.info(
+                            f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={answer}")
 
-                    # convert to dictionary before returning
+                    # convert to dictionary before returning if necessary
+                    if self.session_id == "None":
+                        return answer
+
                     answer = {
                         "session_id": self.session_id,
                         "question": question,
@@ -160,7 +170,7 @@ def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Process some arguments.")
 
-    parser.add_argument('--session-id', type=str, required=True,
+    parser.add_argument('--session-id', type=str, default="None",
                         help='Session ID for the context memory')
     parser.add_argument('--question', type=str,
                         help='The question to ask the RAG server')

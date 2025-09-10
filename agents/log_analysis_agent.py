@@ -22,20 +22,19 @@
 
 import argparse
 import ast
-import asyncio
+# import asyncio
 import logging
 import os
 import re
 import requests
 import sys
 from collections import deque
-
-# from docutils.nodes import description
-from fastmcp import FastMCP
+# from fastmcp import FastMCP
 from time import sleep
 
+from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
-from ask_panda_server import MCP_SERVER_URL, check_server_health
+from tools.server_utils import MCP_SERVER_URL, check_server_health
 from tools.tools import fetch_data, read_json_file, read_file
 
 logging.basicConfig(
@@ -47,8 +46,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-mcp = FastMCP("panda")
+memory = ContextMemory()
+# mcp = FastMCP("panda")
 
 
 class LogAnalysisAgent:
@@ -56,7 +55,7 @@ class LogAnalysisAgent:
     A simple command-line agent that interacts with a RAG server to analyze log files.
     This agent fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
     """
-    def __init__(self, model: str, pandaid: str, cache: str) -> None:
+    def __init__(self, model: str, pandaid: str, cache: str, session_id: str) -> None:
         """
         Initialize the LogAnalysisAgent with a model.
 
@@ -64,6 +63,7 @@ class LogAnalysisAgent:
             model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
             pandaid (str): The PanDA job ID to analyze.
             cache (str): The location of the cache directory for storing downloaded files.
+            session_id (str): The session ID for tracking the conversation.
         """
         self.model = model  # e.g., OpenAI or Anthropic wrapper
         try:
@@ -90,9 +90,11 @@ class LogAnalysisAgent:
                 logger.error(f"Failed to create directory {path}: {e}")
                 sys.exit(1)
 
+        self.session_id = session_id  # Session ID for tracking conversation
+
     def ask(self, question: str) -> str:
         """
-        Send a question to the LLMr and retrieve the answer.
+        Send a question to the LLM and retrieve the answer.
 
         Args:
             question (str): The question to ask the RAG server.
@@ -100,42 +102,74 @@ class LogAnalysisAgent:
         Returns:
             str: The answer returned by the MCP server.
         """
+
+        def extract_python_literal(s: str) -> str:
+            # strip fences if present
+            m = re.search(r"```(?:python)?\s*(\{.*\})\s*```", s, flags=re.S)
+            return m.group(1) if m else s.strip()
+
+        def parse_answer_to_dict(raw: str) -> dict:
+            payload = extract_python_literal(raw)
+            return ast.literal_eval(payload)  # works with triple-quoted strings
+
         server_url = f"{MCP_SERVER_URL}/rag_ask"
+        import time
+        logger.info(f"ask() was called at {time.time()}")
+
         response = requests.post(server_url, json={"question": question, "model": self.model})
         if response.ok:
             answer = response.json()["answer"]
             if not answer:
                 err = "No answer returned from the LLM."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
             # Strip code block formatting
             try:
-                clean_code = re.sub(r"^```(?:python)?\n|\n```$", "", answer.strip())
+                # clean_code = re.sub(r"^```(?:python|json)?\n|\n```$", "", answer.strip())
+                clean_code = re.sub(r"^```(?:python|json)?\n|\n```$", "", answer.strip())
             except re.error as e:
                 logger.error(f"Regex error while cleaning code: {e}")
-                return {'error': f"Regex error: {e}"}
+                return f"{e}"
 
             # convert the answer to a Python dictionary
             try:
-                answer_dict = ast.literal_eval(clean_code)
+                answer_dict = parse_answer_to_dict(clean_code)
             except (SyntaxError, ValueError) as e:
-                err = f"Error converting answer to dictionary: {e}"
+                err = f"Error converting answer to dictionary: {e}\n\nanswer={answer}\n\nclean_code={clean_code}"
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
             if not answer_dict:
                 err = "Failed to store the answer as a Python dictionary."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
-            return answer_dict
+            # format the answer for better readability
+            formatted_answer = format_answer(answer_dict)
+            if not formatted_answer:
+                logger.error(f"Failed to format the answer from the LLM using: {answer_dict}")
+                sys.exit(1)
 
-        return {'error': f"requests.post() error: {response.text}"}
+            logger.info(f"Answer from {self.model.capitalize()}:\n{formatted_answer}")
 
-    async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
+            # store the answer in the session memory
+            if self.session_id != "None":
+                memory.store_turn(self.session_id, "Investigate the job failure", formatted_answer)
+                logger.info(f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={formatted_answer}")
+
+            return formatted_answer
+
+        return f"requests.post() error: {response.text}"
+
+    # async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
+
+    def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None, str]:
         """
         Fetches all files and metadata from PanDA for a given job ID.
+
+        The function might update the log_file name to fetch based on the job's error code,
+        so it must also return the actual log file name used since that will be used later on.
 
         Args:
             log_file (str): The name of the log file to fetch.
@@ -144,29 +178,23 @@ class LogAnalysisAgent:
             Exit code (int): The exit code indicating the status of the operation.
             File dictionary (dict): A dictionary containing the file names and their corresponding paths.
             Metadata dictionary (dict): A dictionary containing the relevant metadata for the job.
+            Log file (str): The actual log file name used for fetching.
         """
         _metadata_dictionary = {}
         _file_dictionary = {}
 
         # Download metadata and pilot log concurrently
         workdir = os.path.join(self.cache, "jobs")
-        metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir))
-        pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir))
+        # metadata_task = asyncio.create_task(fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir))
+        # pilot_log_task = asyncio.create_task(fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir))
 
         # Wait for both downloads to complete
-        metadata_success, metadata_message = await metadata_task
-        pilot_log_success, pilot_log_message = await pilot_log_task
-
-        if pilot_log_success != 0:
-            logger.warning(f"Failed to fetch the pilot log file for PandaID {self.pandaid} - will only use metadata for error analysis.")
-        else:
-            _file_dictionary[log_file] = pilot_log_message
-            logger.info(f"Downloaded file: {log_file}, stored as {pilot_log_message}")
-
+        # metadata_success, metadata_message = await metadata_task
+        # pilot_log_success, pilot_log_message = await pilot_log_task
+        metadata_success, metadata_message = fetch_data(self.pandaid, filename="metadata.json", jsondata=True, workdir=workdir)
         if metadata_success != 0:
             logger.warning(f"Failed to fetch metadata for PandaID {self.pandaid} - will not be able to analyze the job failure.")
-            return EC_NOTFOUND, _file_dictionary, _metadata_dictionary
-
+            return EC_NOTFOUND, _file_dictionary, _metadata_dictionary, log_file
         logger.info(f"Downloaded JSON file: {metadata_message}")
         _file_dictionary["json"] = metadata_message
 
@@ -174,52 +202,104 @@ class LogAnalysisAgent:
         job_data = read_json_file(metadata_message)
         if not job_data:
             logger.warning(f"Error: Failed to read the JSON data from {metadata_message}.")
-            return EC_UNKNOWN_ERROR, None, None
-        if not job_data['job']['jobstatus'] == 'failed':
-            logger.warning(f"Error: The job with PandaID {self.pandaid} is not in a failed state - nothing to explain.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
+
+        # what happened to the job - check the status
+        jobstatus = job_data['job'].get('jobstatus', 'unknown').lower()
+        logger.info(f"Job status: {jobstatus}")
+
+        try:
+            _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
+            _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
+            _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
+            _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
+            _metadata_dictionary['jobstatus'] = jobstatus
+        except KeyError as e:
+            logger.warning(f"Error: Missing key in JSON data: {e}")
+            return EC_UNKNOWN_ERROR, None, None, log_file
+
+        # update the log file for user payload failures
+        if _metadata_dictionary.get("piloterrorcode", 0) == 1305:
+            log_file = "payload.stdout"
+            logger.info(f"Updated log file to fetch for user payload failure: {log_file}")
+
+        # only download the log file for failed jobs (otherwise all relevant info is in the metadata file)
+        if jobstatus == 'failed':
+            pilot_log_success, pilot_log_message = fetch_data(self.pandaid, filename=log_file, jsondata=False, workdir=workdir)
+            if pilot_log_success != 0:
+                logger.warning(f"Failed to fetch the pilot log file for PandaID {self.pandaid} - will only use metadata for error analysis.")
+            else:
+                _file_dictionary[log_file] = pilot_log_message
+                logger.info(f"Downloaded file: {log_file}, stored as {pilot_log_message}")
+
+        # if not job_data['job']['jobstatus'] == 'failed':
+        #     logger.warning(f"Error: The job with PandaID {self.pandaid} is not in a failed state - nothing to explain.")
+        #     return EC_UNKNOWN_ERROR, None, None, log_file
+
+        # less info is needed for jobs that did not fail
+        if jobstatus not in ['failed', 'holding', 'cancelled']:
+            _metadata_dictionary['metadata'] = job_data['job'].copy()
+            return EC_OK, _file_dictionary, _metadata_dictionary, log_file
 
         # Fetch pilot error descriptions
         path = os.path.join(self.cache, "pilot_error_codes_and_descriptions.json")
         pilot_error_descriptions = read_json_file(path)
         if not pilot_error_descriptions:
             logger.warning("Error: Failed to read the pilot error descriptions.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
         # Fetch transform error descriptions
         path = os.path.join(self.cache, "trf_error_codes_and_descriptions.json")
         transform_error_descriptions = read_json_file(path)
         if not transform_error_descriptions:
             logger.warning("Error: Failed to read the transform error descriptions.")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
         # Extract relevant metadata from the JSON data
         try:
-            _metadata_dictionary["piloterrorcode"] = job_data['job']['piloterrorcode']
-            _metadata_dictionary["piloterrordiag"] = job_data['job']['piloterrordiag']
-            _metadata_dictionary["exeerrorcode"] = job_data['job']['exeerrorcode']
-            _metadata_dictionary["exeerrordiag"] = job_data['job']['exeerrordiag']
             _metadata_dictionary["piloterrordescription"] = pilot_error_descriptions.get(str(_metadata_dictionary.get("piloterrorcode")))
             _metadata_dictionary["trferrordescription"] = transform_error_descriptions.get(str(_metadata_dictionary.get("exeerrorcode")))
         except KeyError as e:
             logger.warning(f"Error: Missing key in JSON data: {e}")
-            return EC_UNKNOWN_ERROR, None, None
+            return EC_UNKNOWN_ERROR, None, None, log_file
 
-        return EC_OK, _file_dictionary, _metadata_dictionary
+        return EC_OK, _file_dictionary, _metadata_dictionary, log_file
 
-    def extract_preceding_lines_streaming(self, log_file: str, error_pattern: str, num_lines: int = 20, output_file: str = None):
+    def extract_preceding_lines_streaming(
+            self,
+            log_file: str,
+            error_pattern: str,
+            num_lines: int = 30,
+            output_file: str = None
+    ):
         """
         Extracts the preceding lines from a log file when a specific error pattern is found.
 
-        Note: Can handle very large files efficiently by using a sliding window approach.
+        Special case:
+            If error_pattern == "" and "payload" in log_file, simply return the last `num_lines` lines.
 
         Args:
             log_file (str): The path to the log file to be analyzed.
             error_pattern (str): The regular expression pattern to search for in the log file.
-            num_lines (int): The number of preceding lines to extract (default is 20).
+            num_lines (int): The number of preceding lines to extract (default is 30).
             output_file (str, optional): If provided, the extracted lines will be saved to this file.
         """
         logger.info(f"Searching for error pattern '{error_pattern}' in log file '{log_file}'.")
+
+        # Special case: just return last num_lines from payload logs
+        if error_pattern == "" and "payload" in log_file:
+            num_lines = 100
+            with open(log_file, 'r', encoding='utf-8') as file:
+                lines = deque(file, maxlen=num_lines)  # keeps last num_lines lines
+            if output_file:
+                with open(output_file, 'w') as out_file:
+                    out_file.writelines(lines)
+                logger.info(f"Last {num_lines} lines saved to: {output_file}")
+            else:
+                logger.warning("".join(lines))
+            return
+
+        # Normal case: search for error pattern
         buffer = deque(maxlen=num_lines)
         pattern = re.compile(error_pattern)
 
@@ -288,32 +368,58 @@ class LogAnalysisAgent:
             if not log_extracts:
                 logger.warning(f"Error: Failed to read the extracted log file {output_file}.")
                 return ""
+
+            #    errorcode = metadata_dictionary.get("piloterrorcode", None)
+            errordiag = metadata_dictionary.get("piloterrordiag", None)
+            if not errordiag:
+                logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
+                return ""
         else:
             log_extracts = None
+            errordiag = None
 
-        #    errorcode = metadata_dictionary.get("piloterrorcode", None)
-        errordiag = metadata_dictionary.get("piloterrordiag", None)
-        if not errordiag:
-            logger.warning("Error: No pilot error diagnosis found in the metadata dictionary.")
-            return ""
-
-        question = ("You are an expert on distributed analysis. A PanDA job has failed. The job was run on a linux worker node, "
-                    "and the pilot has detected an error.\n\n")
+        jobstatus = metadata_dictionary.get("jobstatus", "unknown").lower()
+        question = f"You are an expert on distributed analysis. A PanDA job has job status \'{jobstatus}\'. The job was run on a linux worker node."
+        if jobstatus in ['failed', 'holding', 'cancelled']:
+            question += "and the pilot has detected a possible error.\n\n"
+        question += "\n\n"
 
         description = ""
-        if log_extracts:
-            description += f"Error diagnostics: \"{errordiag}\".\n\n"
-            description += f"The log extracts are as follows:\n\n\"{log_extracts}\""
-        else:
-            description += f"Error diagnostics: \"{errordiag}\".\n\n"
+        if jobstatus == 'finished':
+            question += "The job has finished successfully. Please analyze the metadata and summarize it:\n\n"
+            question += f"{metadata_dictionary.get('metadata')}\n"
+            question += """Do not wrap the dictionary in Markdown (no triple backticks, no "```python"). Return only a valid Python dictionary."""
+            return question
+        elif jobstatus not in ['failed', 'holding', 'cancelled']:
+            question += f"The job is in state {jobstatus}. Please analyze the metadata and summarize it:\n\n"
+            question += f"{metadata_dictionary.get('metadata')}\n"
+            question += """Do not wrap the dictionary in Markdown (no triple backticks, no "```python"). Return only a valid Python dictionary."""
+            return question
+        elif jobstatus in ['failed', 'holding', 'cancelled']:
+            if log_extracts:
+                description += f"Error diagnostics: \'{errordiag}\'.\n\n"
+                description += f"The log extracts are as follows:\n\n\'{log_extracts}\'"
+            elif errordiag:
+                description += f"Error diagnostics: \"{errordiag}\".\n\n"
+            else:
+                description += f"Error diagnostics: \"{errordiag}\".\n\n"
+            preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
+            if preliminary_diagnosis:
+                description += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
 
-        preliminary_diagnosis = metadata_dictionary.get("piloterrordiag", None)
-        if preliminary_diagnosis:
-            description += f"\nA preliminary diagnosis exists: \"{metadata_dictionary.get('piloterrordescription', 'No description available.')}\"\n\n"
-
+        piloterrorcode = metadata_dictionary.get("piloterrorcode", "")
+        question += f"The pilot error code is {piloterrorcode}.\n\n"
         question += """
-    Please convert the following explanation for PanDA job error code 1221 into a Python dictionary.
-    Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
+Instructions:
+
+Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
+
+Return the dictionary with field names and values using HTML tags for bold, e.g., <b>description</b>.
+
+Make sure to wrap any multi-paragraph strings in triple quotes.
+
+No code fences.
+
 The dictionary should have the error code as the key (an integer), and its value should include the following fields:
 
     "description": A short summary of the error in plain English.
@@ -336,7 +442,9 @@ The dictionary should have the error code as the key (an integer), and its value
 
         "preventative_measures": A list of best practices to prevent this issue in the future.
 
-Return only a valid Python dictionary. Here's the error description:
+Return only a valid Python dictionary.
+
+Here's the error description:
         """
         question += f"\n\n{description}\n\n"
 
@@ -353,7 +461,8 @@ Return only a valid Python dictionary. Here's the error description:
             str: A formatted question string to be sent to the LLM.
         """
         # Fetch the files from PanDA
-        exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data(log_file))
+        # exit_code, file_dictionary, metadata_dictionary, log_file = asyncio.run(self.fetch_all_data(log_file))
+        exit_code, file_dictionary, metadata_dictionary, log_file = self.fetch_all_data(log_file)
         if exit_code == EC_NOTFOUND:
             logger.warning(
                 f"No log files found for PandaID {self.pandaid} - will proceed with only superficial knowledge of failure.")
@@ -362,18 +471,27 @@ Return only a valid Python dictionary. Here's the error description:
             sys.exit(1)
 
         # Extract the relevant parts for error analysis
-        if file_dictionary and log_file not in file_dictionary and exit_code != EC_NOTFOUND:
-            logger.warning(f"Error: Log file {log_file} not found in the fetched files.")
-            sys.exit(1)
-        output_file = f"{self.pandaid}-{log_file}_extracted.txt"
-        log_file_path = file_dictionary.get(log_file) if file_dictionary else None
-        if log_file_path:
-            # Create an output file for the log extracts
-            error_string = self.get_relevant_error_string(metadata_dictionary)
-            self.extract_preceding_lines_streaming(log_file_path, error_string[:40], output_file=output_file)
-        if not os.path.exists(output_file):
-            logger.info("The error string was not found in the log file, so no output file was created.")
+        if len(file_dictionary) == 1 and 'json' in file_dictionary:
+            logger.info(f"Only metadata found for PandaID {self.pandaid} - no log files to analyze.")
             output_file = None
+        else:
+            if file_dictionary and log_file not in file_dictionary and exit_code != EC_NOTFOUND:
+                logger.warning(f"Error: Log file {log_file} not found in the fetched files.")
+                sys.exit(1)
+            output_file = f"{self.pandaid}-{log_file}_extracted.txt"
+            log_file_path = file_dictionary.get(log_file) if file_dictionary else None
+            if log_file_path:
+                # Create an output file for the log extracts
+                if "pilotlog" in log_file:
+                    error_string = self.get_relevant_error_string(metadata_dictionary)
+                    if error_string:
+                        error_string = error_string[:40]  # Limit to first 40 characters
+                else:
+                    error_string = ""  # not needed for payload logs
+                self.extract_preceding_lines_streaming(log_file_path, error_string, output_file=output_file)
+            if not os.path.exists(output_file):
+                logger.info("The error string was not found in the log file, so no output file was created.")
+                output_file = None
 
         # Formulate the question based on the extracted lines and metadata
         question = self.formulate_question(output_file, metadata_dictionary)
@@ -382,6 +500,72 @@ Return only a valid Python dictionary. Here's the error description:
             sys.exit(1)
 
         return question
+
+
+def format_answer(answer: dict) -> str:
+    """
+    Format the answer dictionary into a human-readable string.
+
+    Args:
+        answer (dict): The answer dictionary returned by the LLM.
+
+    Returns:
+        str: A formatted string containing the description, non-expert guidance, and expert guidance.
+    """
+    # the dictionary will only ever contain a single key-value pair
+    logger.info(f"answer dictionary to format: {answer} type={type(answer)}")
+    error_code, value = next(iter(answer.items()))
+
+    to_store = ""
+
+    # for metadata, the value is a string - otherwise a dictionary
+    if isinstance(value, str):
+        to_store += value
+        return to_store
+
+    description = value.get('description')
+    if description:
+        to_store += f"**Description:**\n{description}\n\n"
+
+    non_expert_guidance = value.get('non_expert_guidance')  # dict
+    if non_expert_guidance:
+        problem = non_expert_guidance.get('problem')
+        if problem:
+            to_store += f"**Non-expert guidance - problem:**\n{problem}\n\n"
+
+        possible_causes = non_expert_guidance.get('possible_causes')
+        if possible_causes:
+            bullet_list = '\n'.join(f'* {item}' for item in possible_causes) if isinstance(possible_causes, list) else possible_causes
+            to_store += f"**Non-expert guidance - possible causes:**\n{bullet_list}\n\n"
+
+        recommendations = non_expert_guidance.get('recommendations')
+        if recommendations:
+            bullet_list = '\n'.join(f'* {item}' for item in recommendations) if isinstance(recommendations, list) else recommendations
+            to_store += f"**Non-expert guidance - recommendations:**\n{bullet_list}\n\n"
+
+    expert_guidance = value.get('expert_guidance')  # dict
+    if expert_guidance:
+        analysis = expert_guidance.get('analysis')
+        if analysis:
+            to_store += f"**Expert guidance - analysis:**\n{analysis}\n\n"
+
+        investigation_steps = expert_guidance.get('investigation_steps')
+        if investigation_steps:
+            bullet_list = '\n'.join(f'* {item}' for item in investigation_steps) if isinstance(investigation_steps, list) else investigation_steps
+            to_store += f"**Expert guidance - investigation steps:**\n{bullet_list}\n\n"
+
+        possible_scenarios = expert_guidance.get('possible_scenarios')
+        if possible_scenarios:
+            if isinstance(possible_scenarios, dict):
+                bullet_list = '\n'.join(f'* {k}: {v}' for k, v in possible_scenarios.items())
+                to_store += f"**Expert guidance - possible scenarios:**\n{bullet_list}\n\n"
+            elif isinstance(possible_scenarios, list):
+                bullet_list = '\n'.join(f'* {item}' for item in possible_scenarios) if isinstance(possible_scenarios, list) else possible_scenarios
+                to_store += f"**Expert guidance - possible scenarios:**\n{bullet_list}\n\n"
+            else:
+                to_store += f"**Expert guidance - possible scenarios:**\n{possible_scenarios}\n\n"
+
+    return to_store
 
 
 def main():
@@ -418,11 +602,11 @@ def main():
                         help='Model to use (e.g., openai, anthropic, etc.)')
     parser.add_argument('--cache', type=str, default="cache",
                         help='Location of cache directory (default: cache)')
-    # parser.add_argument('--session-id', type=str, required=True,
-    #                     help='Session ID for the context memory')
+    parser.add_argument('--session-id', type=str, default="None",
+                        help='Session ID for the context memory')
     args = parser.parse_args()
 
-    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache)
+    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache, args.session_id)
 
     # Generate a proper question to ask the LLM based on the metadata and log files
     question = agent.generate_question(args.log_file)
@@ -430,11 +614,9 @@ def main():
 
     # Ask the question to the LLM
     answer = agent.ask(question)
-
-    logger.info(f"Answer from {args.model.capitalize()}:\n{answer}")
-
-    # store the answer in the session memory
-    # ..
+    if not answer:
+        logger.error("No answer returned from the LLM.")
+        sys.exit(1)
 
     sys.exit(0)
 

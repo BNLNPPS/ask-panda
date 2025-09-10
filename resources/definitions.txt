@@ -1,0 +1,62 @@
+Additional definitions that can be useful to enhance the RAG.
+
+----------------
+DEFINITION: iDDS
+**iDDS** is an _intelligent Data Delivery Service_ orchestrating workflow and data management systems to optimize resource
+usage in various workflows.
+----------------
+DEFINITION: Payload (in the context of PanDA)
+The term **payload** refers to the software that is being delivered by the system to be executed on a computing resource.
+When a PanDA Pilot is launched on a worker node, it downloads the payload and executes it, along with any required input files.
+----------------
+DEFINITION: PanDA
+![PanDA logo](https://panda-wms.readthedocs.io/en/latest/_static/PanDA-rev-logo-small-200px.jpg)
+**PanDA** (Production and Distributed Analysis) is a workload management system designed to handle the processing of large-scale data
+in distributed computing environments, particularly in high-energy physics experiments like those conducted at CERN.
+The PanDA system was developed to meet ATLAS production and analysis requirements for a data-driven workload management system
+capable of operating at the LHC data processing scale.
+PanDA scalability has been demonstrated in ATLAS through the rapid increase in usage over the last decades.
+PanDA was designed to have the flexibility to adapt to emerging computing technologies in processing, storage, networking, and distributed computing middleware.
+![PanDA diagram](https://panda-wms.readthedocs.io/en/latest/_images/PandaSys.png)
+----------------
+DEFINITION: PanDA Pilot
+A **PanDA Pilot** is a lightweight agent that runs on a worker node in a distributed computing environment.
+It is responsible for fetching and executing jobs assigned by the PanDA server, managing the execution environment, and reporting job status back to the server.
+----------------
+DEFINITION: PanDA Job
+A **PanDA Job** is a unit of work that is submitted to the PanDA workload management system for processing.
+Each job typically includes a set of input files, a payload (the software to be executed), and instructions on how to process the data.
+----------------
+DEFINITION: Rucio
+**Rucio** is an open-source software framework that provides data management capabilities for large-scale scientific experiments.
+It is designed to handle the storage, replication, and access of vast amounts of data across distributed computing resources.
+----------------
+DEFINITION: Rucio DID
+A **Rucio DID** (Data Identifier) is a unique identifier used in the Rucio data management system to reference a specific piece of data, such as a file or dataset.
+Rucio DIDs are used to track and manage data across distributed storage systems.
+----------------
+DEFINITION: Rucio Scope
+A **Rucio Scope** is a namespace used in the Rucio data management system to organize and categorize data.
+Scopes help to avoid naming conflicts and provide a way to group related datasets or files.
+----------------
+DEFINITION: Rucio Account
+A **Rucio Account** is a user or entity within the Rucio data management system that has permissions to perform actions such as uploading, downloading, and managing data.
+Each account is associated with specific roles and access rights.
+----------------
+DEFINITION: Rucio Storage Element (RSE)
+A **Rucio Storage Element (RSE)** is a logical representation of a storage resource within the Rucio data management system.
+RSEs can represent various types of storage systems, such as disk storage, tape storage, or cloud storage, and are used to manage data placement and replication.
+----------------
+DEFINITION: Rucio Replica
+A **Rucio Replica** is a copy of a dataset or file that is stored at a specific Rucio Storage Element (RSE).
+Replicas are used to ensure data availability and redundancy across distributed storage systems.
+----------------
+DEFINITION: Rucio Rule
+A **Rucio Rule** is a policy or instruction within the Rucio data management system that defines how data should be managed, such as replication, deletion, or retention policies.
+Rules help automate data management tasks based on predefined criteria.
+----------------
+DEFINITION: Rucio Subscription
+A **Rucio Subscription** is a mechanism within the Rucio data management system that allows users to automatically receive notifications or updates about changes to specific datasets or files.
+Subscriptions can be used to monitor data availability or changes in data status.
+----------------
+

@@ -48,11 +48,11 @@ import google.generativeai as genai
 import httpx  # Import httpx
 import openai
 import os
-import requests  # For checking MCP server health
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastmcp import FastMCP
+from mistralai import Mistral
 # from langchain_openai import OpenAIEmbeddings
 # from langchain_community.vectorstores import FAISS
 # from langchain_community.document_loaders import TextLoader
@@ -62,7 +62,6 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional  # For type hinting
 
-from tools.errorcodes import EC_OK, EC_SERVERNOTRUNNING, EC_CONNECTIONPROBLEM, EC_TIMEOUT, EC_UNKNOWN_ERROR
 from tools.tools import get_vectorstore_manager
 
 
@@ -105,10 +104,7 @@ GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 LLAMA_API_URL: Optional[str] = os.getenv(
     "LLAMA_API_URL", "http://localhost:11434/api/generate"
 )
-
-# MCP server IP and env vars
-MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
-HEALTH_ENDPOINT = f"{MCP_SERVER_URL}/health"
+MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
 
 # Configure SDKs - these operations might implicitly use the API keys above
 # or might be for libraries that don't require explicit key passing at every call.
@@ -122,37 +118,6 @@ if GEMINI_API_KEY:
 #    embeddings,  # type: ignore # FAISS.load_local expects specific embedding types, ignore for flexibility.
 #    allow_dangerous_deserialization=True,  # Safe if it's your own data
 # )
-
-
-def check_server_health() -> int:
-    """
-    Check the health of the MCP server.
-    This function attempts to connect to the MCP server's health endpoint
-    and checks if it returns a status of "ok".
-    If the server is reachable and healthy, it returns EC_OK.
-    If the server is not running or there is a connection problem,
-    it returns EC_SERVERNOTRUNNING or EC_CONNECTIONPROBLEM respectively.
-
-    Returns:
-        Server error code (int): Exit code indicating the health status of the MCP server.
-    """
-    try:
-        response = requests.get(HEALTH_ENDPOINT, timeout=5)
-        response.raise_for_status()
-        if response.json().get("status") == "ok":
-            logger.info("MCP server is running.")
-            return EC_OK
-        logger.warning("MCP server is not running.")
-        return EC_SERVERNOTRUNNING
-    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout):
-        logger.warning(f"Timeout while trying to connect to MCP server at {MCP_SERVER_URL}.")
-        return EC_TIMEOUT
-    except requests.RequestException as e:
-        logger.warning(f"Cannot connect to MCP server at {MCP_SERVER_URL}: {e}")
-        return EC_CONNECTIONPROBLEM
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while checking MCP server health: {e}")
-        return EC_UNKNOWN_ERROR
 
 
 class PandaMCP(FastMCP):
@@ -186,6 +151,25 @@ class PandaMCP(FastMCP):
         self.resources_dir = resources_dir
         self.vectorstore_dir = vectorstore_dir
         self.vectorstore_manager = vectorstore_manager
+
+    async def _call_mistral(self, prompt: str) -> str:
+        """
+        Use the official Mistral SDK for cleaner, more reliable API calls.
+        """
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            return "Error: MISTRAL_API_KEY not set in environment."
+
+        try:
+            async with Mistral(api_key=api_key) as client:
+                res = await client.chat.complete_async(
+                    model="mistral-large-latest",
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False
+                )
+                return res.choices[0].message.content.strip()
+        except Exception as e:
+            return f"Mistral SDK error: {str(e)}"
 
     async def _call_anthropic(self, prompt: str) -> str:
         """
@@ -397,6 +381,8 @@ class PandaMCP(FastMCP):
             return await self._call_llama(prompt)
         if model == "gemini":
             return await self._call_gemini(prompt)
+        if model == "mistral":
+            return await self._call_mistral(prompt)
 
         return f"Invalid model specified: '{model}'."
 
