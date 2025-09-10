@@ -9,6 +9,7 @@ langchain_community
 langchain-chroma
 langchain-huggingface
 langchain-openai
+mistral
 numpy<2
 openai
 psutil
