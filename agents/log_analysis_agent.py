@@ -102,6 +102,16 @@ class LogAnalysisAgent:
         Returns:
             str: The answer returned by the MCP server.
         """
+
+        def extract_python_literal(s: str) -> str:
+            # strip fences if present
+            m = re.search(r"```(?:python)?\s*(\{.*\})\s*```", s, flags=re.S)
+            return m.group(1) if m else s.strip()
+
+        def parse_answer_to_dict(raw: str) -> dict:
+            payload = extract_python_literal(raw)
+            return ast.literal_eval(payload)  # works with triple-quoted strings
+
         server_url = f"{MCP_SERVER_URL}/rag_ask"
         import time
         logger.info(f"ask() was called at {time.time()}")
@@ -112,27 +122,28 @@ class LogAnalysisAgent:
             if not answer:
                 err = "No answer returned from the LLM."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
             # Strip code block formatting
             try:
+                # clean_code = re.sub(r"^```(?:python|json)?\n|\n```$", "", answer.strip())
                 clean_code = re.sub(r"^```(?:python|json)?\n|\n```$", "", answer.strip())
             except re.error as e:
                 logger.error(f"Regex error while cleaning code: {e}")
-                return {'error': f"Regex error: {e}"}
+                return f"{e}"
 
             # convert the answer to a Python dictionary
             try:
-                answer_dict = ast.literal_eval(clean_code)
+                answer_dict = parse_answer_to_dict(clean_code)
             except (SyntaxError, ValueError) as e:
                 err = f"Error converting answer to dictionary: {e}\n\nanswer={answer}\n\nclean_code={clean_code}"
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
             if not answer_dict:
                 err = "Failed to store the answer as a Python dictionary."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return f"{err}"
 
             # format the answer for better readability
             formatted_answer = format_answer(answer_dict)
@@ -148,9 +159,8 @@ class LogAnalysisAgent:
                 logger.info(f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={formatted_answer}")
 
             return formatted_answer
-            # return answer_dict
 
-        return {'error': f"requests.post() error: {response.text}"}
+        return f"requests.post() error: {response.text}"
 
     # async def fetch_all_data(self, log_file: str) -> tuple[int, dict or None, dict or None]:
 
@@ -306,35 +316,6 @@ class LogAnalysisAgent:
                         logger.warning("".join(buffer))
                     return
 
-    def extract_preceding_lines_streaming_old(self, log_file: str, error_pattern: str, num_lines: int = 30, output_file: str = None):
-        """
-        Extracts the preceding lines from a log file when a specific error pattern is found.
-
-        Note: Can handle very large files efficiently by using a sliding window approach.
-
-        Args:
-            log_file (str): The path to the log file to be analyzed.
-            error_pattern (str): The regular expression pattern to search for in the log file.
-            num_lines (int): The number of preceding lines to extract (default is 20).
-            output_file (str, optional): If provided, the extracted lines will be saved to this file.
-        """
-        logger.info(f"Searching for error pattern '{error_pattern}' in log file '{log_file}'.")
-        buffer = deque(maxlen=num_lines)
-        pattern = re.compile(error_pattern)
-
-        with open(log_file, 'r', encoding='utf-8') as file:
-            for line in file:
-                buffer.append(line)
-                if pattern.search(line):
-                    # Match found; output the preceding lines
-                    if output_file:
-                        with open(output_file, 'w') as out_file:
-                            out_file.writelines(buffer)
-                        logger.info(f"Extracted lines saved to: {output_file}")
-                    else:
-                        logger.warning("".join(buffer))
-                    return
-
     def get_relevant_error_string(self, metadata_dictionary: dict) -> str:
         """
         Construct a relevant error string based on the metadata dictionary.
@@ -429,8 +410,15 @@ class LogAnalysisAgent:
         piloterrorcode = metadata_dictionary.get("piloterrorcode", "")
         question += f"The pilot error code is {piloterrorcode}.\n\n"
         question += """
-Do not wrap the dictionary in Markdown (no triple backticks, no "```python"), but
-return the dictionary with field names and values using HTML tags for bold, e.g., <b>description</b>.
+Instructions:
+
+Do not wrap the dictionary in Markdown (no triple backticks, no "```python").
+
+Return the dictionary with field names and values using HTML tags for bold, e.g., <b>description</b>.
+
+Make sure to wrap any multi-paragraph strings in triple quotes.
+
+No code fences.
 
 The dictionary should have the error code as the key (an integer), and its value should include the following fields:
 
@@ -454,7 +442,9 @@ The dictionary should have the error code as the key (an integer), and its value
 
         "preventative_measures": A list of best practices to prevent this issue in the future.
 
-Return only a valid Python dictionary. Here's the error description:
+Return only a valid Python dictionary.
+
+Here's the error description:
         """
         question += f"\n\n{description}\n\n"
 
@@ -535,45 +525,45 @@ def format_answer(answer: dict) -> str:
 
     description = value.get('description')
     if description:
-        to_store += f"{description}\n\n"
+        to_store += f"**Description:**\n{description}\n\n"
 
     non_expert_guidance = value.get('non_expert_guidance')  # dict
     if non_expert_guidance:
         problem = non_expert_guidance.get('problem')
         if problem:
-            to_store += f"Non-expert guidance - problem:\n{problem}\n\n"
+            to_store += f"**Non-expert guidance - problem:**\n{problem}\n\n"
 
         possible_causes = non_expert_guidance.get('possible_causes')
         if possible_causes:
             bullet_list = '\n'.join(f'* {item}' for item in possible_causes) if isinstance(possible_causes, list) else possible_causes
-            to_store += f"Non-expert guidance - possible causes:\n{bullet_list}\n\n"
+            to_store += f"**Non-expert guidance - possible causes:**\n{bullet_list}\n\n"
 
         recommendations = non_expert_guidance.get('recommendations')
         if recommendations:
             bullet_list = '\n'.join(f'* {item}' for item in recommendations) if isinstance(recommendations, list) else recommendations
-            to_store += f"Non-expert guidance - recommendations:\n{bullet_list}\n\n"
+            to_store += f"**Non-expert guidance - recommendations:**\n{bullet_list}\n\n"
 
     expert_guidance = value.get('expert_guidance')  # dict
     if expert_guidance:
         analysis = expert_guidance.get('analysis')
         if analysis:
-            to_store += f"Expert guidance - analysis:\n{analysis}\n\n"
+            to_store += f"**Expert guidance - analysis:**\n{analysis}\n\n"
 
         investigation_steps = expert_guidance.get('investigation_steps')
         if investigation_steps:
             bullet_list = '\n'.join(f'* {item}' for item in investigation_steps) if isinstance(investigation_steps, list) else investigation_steps
-            to_store += f"Expert guidance - investigation steps:\n{bullet_list}\n\n"
+            to_store += f"**Expert guidance - investigation steps:**\n{bullet_list}\n\n"
 
         possible_scenarios = expert_guidance.get('possible_scenarios')
         if possible_scenarios:
             if isinstance(possible_scenarios, dict):
                 bullet_list = '\n'.join(f'* {k}: {v}' for k, v in possible_scenarios.items())
-                to_store += f"Expert guidance - possible scenarios:\n{bullet_list}\n\n"
+                to_store += f"**Expert guidance - possible scenarios:**\n{bullet_list}\n\n"
             elif isinstance(possible_scenarios, list):
                 bullet_list = '\n'.join(f'* {item}' for item in possible_scenarios) if isinstance(possible_scenarios, list) else possible_scenarios
-                to_store += f"Expert guidance - possible scenarios:\n{bullet_list}\n\n"
+                to_store += f"**Expert guidance - possible scenarios:**\n{bullet_list}\n\n"
             else:
-                to_store += f"Expert guidance - possible scenarios:\n{possible_scenarios}\n\n"
+                to_store += f"**Expert guidance - possible scenarios:**\n{possible_scenarios}\n\n"
 
     return to_store
 

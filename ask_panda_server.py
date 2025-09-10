@@ -52,6 +52,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastmcp import FastMCP
+from mistralai import Mistral
 # from langchain_openai import OpenAIEmbeddings
 # from langchain_community.vectorstores import FAISS
 # from langchain_community.document_loaders import TextLoader
@@ -103,6 +104,7 @@ GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 LLAMA_API_URL: Optional[str] = os.getenv(
     "LLAMA_API_URL", "http://localhost:11434/api/generate"
 )
+MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
 
 # Configure SDKs - these operations might implicitly use the API keys above
 # or might be for libraries that don't require explicit key passing at every call.
@@ -149,6 +151,25 @@ class PandaMCP(FastMCP):
         self.resources_dir = resources_dir
         self.vectorstore_dir = vectorstore_dir
         self.vectorstore_manager = vectorstore_manager
+
+    async def _call_mistral(self, prompt: str) -> str:
+        """
+        Use the official Mistral SDK for cleaner, more reliable API calls.
+        """
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            return "Error: MISTRAL_API_KEY not set in environment."
+
+        try:
+            async with Mistral(api_key=api_key) as client:
+                res = await client.chat.complete_async(
+                    model="mistral-large-latest",
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False
+                )
+                return res.choices[0].message.content.strip()
+        except Exception as e:
+            return f"Mistral SDK error: {str(e)}"
 
     async def _call_anthropic(self, prompt: str) -> str:
         """
@@ -360,6 +381,8 @@ class PandaMCP(FastMCP):
             return await self._call_llama(prompt)
         if model == "gemini":
             return await self._call_gemini(prompt)
+        if model == "mistral":
+            return await self._call_mistral(prompt)
 
         return f"Invalid model specified: '{model}'."
 

@@ -50,7 +50,7 @@ class Pipe:
         meta_type = (__metadata__ or {}).get(
             "type"
         )  # may be "user_response" for real turns
-        print(f"chat_id:{chat_id}")
+
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
             user_valves = self.UserValves()
@@ -95,10 +95,8 @@ class Pipe:
             category = selection_agent.answer(prompt)
 
             # --- NEW: if a follow-up would route to log_analyzer, override to document ---
-            if is_followup and category == "log_analyzer":
-                print(
-                    "Follow-up detected: overriding category 'log_analyzer' -> 'document'"
-                )
+            if is_followup and category != "document":
+                # Follow-up detected: overriding category to 'document'
                 category = "document"
 
             agent = agents.get(category)

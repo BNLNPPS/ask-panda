@@ -89,7 +89,9 @@ class DocumentQueryAgent:
                 prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
         prompt += f"User: {question}\nAssistant:"
         # prompt += "If the question is unclear, reply with \'How can I help you with PanDA?\'.\n"
-
+        prompt += "You are a friendly and helpful assistant that answers questions about the PanDA system."
+        prompt += "Answer the question from the user in as detailed way as possible, using the provided documentation."
+        prompt += "Be sure to include any image references (including in markdown format) in your answer if they are mentioned in the documentation."
         try:
             response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=30)
             if response.ok:

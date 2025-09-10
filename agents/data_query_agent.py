@@ -22,7 +22,7 @@
 
 import argparse
 import ast
-import asyncio
+# import asyncio
 import logging
 import os
 import re
@@ -32,6 +32,7 @@ from collections import deque
 # from fastmcp import FastMCP
 from time import sleep
 
+from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_NOTFOUND, EC_OK, EC_UNKNOWN_ERROR, EC_TIMEOUT
 from tools.https import get_base_url
 from tools.server_utils import MCP_SERVER_URL, check_server_health
@@ -46,7 +47,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
+memory = ContextMemory()
 # mcp = FastMCP("panda")
 
 
@@ -107,14 +108,14 @@ class TaskStatusAgent:
             if not answer:
                 err = "No answer returned from the LLM."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return 'error: {err}'
 
             # Strip code block formatting
             try:
                 clean_code = re.sub(r"^```(?:python)?\n|\n```$", "", answer.strip())
             except re.error as e:
                 logger.error(f"Regex error while cleaning code: {e}")
-                return {'error': f"Regex error: {e}"}
+                return 'error: {err}'
 
             # convert the answer to a Python dictionary
             try:
@@ -122,18 +123,32 @@ class TaskStatusAgent:
             except (SyntaxError, ValueError) as e:
                 err = f"Error converting answer to dictionary: {e}"
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return 'error: {err}'
 
             if not answer_dict:
                 err = "Failed to store the answer as a Python dictionary."
                 logger.error(f"{err}")
-                return {'error': f"{err}"}
+                return 'error: {err}'
 
-            return answer_dict
+            # format the answer for better readability
+            formatted_answer = format_answer(answer_dict)
+            if not formatted_answer:
+                logger.error(f"Failed to format the answer from the LLM using: {answer_dict}")
+                sys.exit(1)
 
-        return {'error': f"requests.post() error: {response.text}"}
+            logger.info(f"Answer from {self.model.capitalize()}:\n{formatted_answer}")
 
-    async def fetch_all_data(self) -> tuple[int, dict or None, dict or None]:
+            # store the answer in the session memory
+            if self.session_id != "None":
+                memory.store_turn(self.session_id, "Investigate the job failure", formatted_answer)
+                logger.info(f"Answer stored in session ID {self.session_id}:\n\nquestion={question}\n\nanswer={formatted_answer}")
+
+            return formatted_answer
+
+        return f"requests.post() error: {response.text}"
+
+    # async def fetch_all_data(self) -> tuple[int, dict or None, dict or None]:
+    def fetch_all_data(self) -> tuple[int, dict or None, dict or None]:
         """
         Fetch metadata from PanDA for a given task ID.
 
@@ -148,11 +163,17 @@ class TaskStatusAgent:
         # Download metadata and pilot log concurrently
         workdir = os.path.join(self.cache, "tasks")
         base_url = get_base_url()
-        url = f"{base_url}/jobs/?jeditaskid={self.taskid}&json&mode=nodrop"
-        metadata_task = asyncio.create_task(fetch_data(self.taskid, filename="metadata.json", jsondata=True, workdir=workdir, url=url))
+        # much info here (including all job ids belong to the task)
+        # url = f"{base_url}/jobs/?jeditaskid={self.taskid}&json&mode=nodrop"
+        url = f"{base_url}/task/{self.taskid}/?json"
+        # metadata_task = asyncio.create_task(fetch_data(self.taskid, filename="metadata.json", jsondata=True, workdir=workdir, url=url))
 
         # Wait for download to complete
-        metadata_success, metadata_message = await metadata_task
+        # metadata_success, metadata_message = await metadata_task
+
+        # metadata_success, metadata_message = await metadata_task
+        metadata_success, metadata_message = fetch_data(self.taskid, filename="metadata.json", jsondata=True, workdir=workdir, url=url)
+
         if metadata_success != 0:
             logger.warning(f"Failed to fetch metadata for task {self.taskid} - will not be able to analyze the task status")
             return EC_NOTFOUND, _file_dictionary, _metadata_dictionary
@@ -185,9 +206,10 @@ class TaskStatusAgent:
                             _metadata_dictionary["errorcodes"] = deque()
                         if job[key] > 0:
                             _metadata_dictionary["errorcodes"].append(job[key])
-        except KeyError as e:
-            logger.warning(f"Error: Missing key in JSON data: {e}")
-            return EC_UNKNOWN_ERROR, None, None
+        except KeyError:
+            _metadata_dictionary = task_data.copy()
+            # logger.warning(f"Error: Missing key in JSON data: {e}")
+            # return EC_UNKNOWN_ERROR, None, None
 
         return EC_OK, _file_dictionary, _metadata_dictionary
 
@@ -201,19 +223,21 @@ class TaskStatusAgent:
         Returns:
             str: A formatted question string to be sent to the LLM.
         """
-        jobs = metadata_dictionary.get("jobs", None)
-        if not jobs:
-            logger.warning("Error: No jobs information found in the metadata dictionary.")
-            return ""
+        # jobs = metadata_dictionary.get("jobs", None)
+        # if not jobs:
+        #    logger.warning("Error: No jobs information found in the metadata dictionary.")
+        #    # return ""
 
-        question = "You are an expert on distributed analysis. A PanDA task is either not start, in progress or has completed (finished or failed).\n\n"
+        question = "You are an expert on distributed analysis.\n\n"
         question += """
 Please provide a summary of the task status based on the metadata provided. The task is identified by its PanDA TaskID.
 The dictionary should have the task id as the key (an integer), and its value should include the following fields:
 
-"description": A short summary of the task status in plain English. If there are no jobs, state that the task has not started yet.
+"description": A detailed summary (long and thorough) of the task status in plain English. If there are no jobs, state that the task has not started yet.
 
 "problems": A plain-language explanation of any issues (job failures as listed in the dictionary).
+
+"details": A detailed analysis of the task status, including job counts per status, common error codes, and error diagnostics.
 
 Return only a valid Python dictionary. Here's the metadata dictionary:
         """
@@ -231,7 +255,8 @@ Return only a valid Python dictionary. Here's the metadata dictionary:
             str: A formatted question string to be sent to the LLM.
         """
         # Fetch the files from PanDA
-        exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data())
+        # exit_code, file_dictionary, metadata_dictionary = asyncio.run(self.fetch_all_data())
+        exit_code, file_dictionary, metadata_dictionary = self.fetch_all_data()
         logger.info(f"metadata_dictionary: {metadata_dictionary}")
 
         if exit_code == EC_NOTFOUND:
@@ -248,6 +273,42 @@ Return only a valid Python dictionary. Here's the metadata dictionary:
             sys.exit(1)
 
         return question
+
+
+def format_answer(answer: dict) -> str:
+    """
+    Format the answer dictionary into a human-readable string.
+
+    Args:
+        answer (dict): The answer dictionary returned by the LLM.
+
+    Returns:
+        str: A formatted string containing the description, non-expert guidance, and expert guidance.
+    """
+    # the dictionary will only ever contain a single key-value pair
+    logger.info(f"answer dictionary to format: {answer} type={type(answer)}")
+    task_id, value = next(iter(answer.items()))
+
+    to_store = ""
+
+    # for metadata, the value is a string - otherwise a dictionary
+    if isinstance(value, str):
+        to_store += value
+        return to_store
+
+    description = value.get('description')
+    if description:
+        to_store += f"**Description:**\n{description}\n\n"
+
+    problems = value.get('problems')
+    if problems:
+        to_store += f"**Problems:**\n{problems}\n\n"
+
+    details = value.get('details')
+    if details:
+        to_store += f"**Details:**\n{details}\n\n"
+
+    return to_store
 
 
 def main():
