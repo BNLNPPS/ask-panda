@@ -30,6 +30,7 @@ from time import sleep
 from agents.document_query_agent import DocumentQueryAgent
 from agents.log_analysis_agent import LogAnalysisAgent
 from agents.data_query_agent import TaskStatusAgent
+from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_TIMEOUT
 from tools.server_utils import MCP_SERVER_URL, check_server_health
 
@@ -43,6 +44,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+memory = ContextMemory()
 
 
 class SelectionAgent:
@@ -64,22 +66,27 @@ class SelectionAgent:
         Returns:
             str: The category of the question (e.g., "document", "queue", "task", "log_analyzer", "pilot_activity").
         """
+        # no need to involve the LLM if we can classify it with simple rules
+        initial = self.simple_classification(question)
+        logger.info(f"Initial classification: {initial}")
+        if initial != "undefined":
+            return initial
+
         prompt = f"""
 You are a routing assistant for a question-answering system. Your job is to classify a question into one of the following categories, based on its topic:
 
 - document:
     Questions about general usage, concepts, how-to guides, or explanation of systems (e.g. PanDA, prun, pathena, containers, error codes).
-    If the question contains both the words 'task' and 'job', then you should select this category,
-    unless one of those words are immediately followed by a number.
 - queue:
     Questions about site or queue data stored in a JSON file (e.g. corepower, copytool, status of a queue, which queues use rucio).
 - log_analyzer:
     Questions about why a specific job failed (e.g. log or failure analysis of job NNN).
     The word 'job', 'pandaid' or 'panda id' must be followed by a number.
-    If the question contains both the words 'task' and 'job', then you should not select this category.
+    If the last line in the question is a number and the user previously asked about a job, you should assume it is a job id and select the 'job' category.
 - task:
     Questions about a specific task's status or job counts (e.g. status of task NNN, number of failed jobs).
     The word 'task' or 'task id' or 'taskid' must be followed by a number.
+    If the last line in the question is a number and the user previously asked about a task, you should assume it is a task id and select the 'task' category.
 - pilot_activity: Questions about pilot activity, failures, or statistics, possibly involving Grafana (e.g. pilots running on queue X, pilots failing, links to
 Grafana).
 
@@ -91,6 +98,45 @@ Output only one of the categories: document, queue, task, log, or pilot.
 """
         result = self.ask(prompt, returnstring=True).strip().lower()
         return result if result in self.agents else "document"
+
+    import re
+
+    def simple_classification(self, question: str) -> str:
+        """
+        A simple rule-based classification of the question into categories.
+
+        Args:
+            question (str): The question to classify.
+
+        Returns:
+            str: The category of the question ("document", "task", "log_analyzer", or "undefined").
+        """
+        # Normalize text (case-insensitive matching)
+        q = question.lower()
+
+        # Regex patterns for task and job with numbers
+        task_pattern = r'\b(task|task id|taskid)\s*\d+'
+        job_pattern = r'\b(job|job id|jobid|panda id|pandaid)\s*\d+'
+
+        # Check for 'task' conditions
+        if re.search(task_pattern, q):
+            return 'task'
+
+        # Check for 'job' conditions
+        if re.search(job_pattern, q):
+            return 'log_analyzer'
+
+        # If not matched, check for both 'task' and 'job' words (not necessarily with numbers)
+        if 'task' in q or 'job' in q:
+            # if the last line a "User: " followed by a number we cannot classify it here
+            lines = q.strip().splitlines()
+            if lines and re.match(r'^user:\s*\d+$', lines[-1].strip()):
+                return 'undefined'
+
+            return 'document'
+
+        # Default case
+        return 'undefined'
 
     def answer(self, question: str) -> str:
         return self.classify_question(question)
@@ -207,20 +253,86 @@ def extract_task_id(text: str) -> int or None:
     return None
 
 
-def figure_out_agents(question: str, model: str, session_id: str, cache: str = None):
+def figure_out_agents(question: str, model: str, session_id: str, cache: str = None, task_id: int = None, panda_id: int = None) -> dict:
     """
     Determine the appropriate agent to handle the given question.
+
+    This function is used by the UI's pipe function to figure out which agents to initialize.
+
     Args:
-        question:
-
+        question (str): The question to be answered.
+        model (str): The model to use for generating the answer.
+        session_id (str): The session ID for the context memory.
+        cache (str): The location of the cache directory.
+        task_id (str): The task ID, if known.
+        panda_id (str): The PanDA ID for the job, if known.
     Returns:
-
+        dict: A dictionary mapping agent categories to their respective agent classes.
     """
     # does the question contain a job or task id?
     # use a regex to extract "job NNNNN" from args.question
-    pandaid = extract_job_id(question)
-    taskid = extract_task_id(question)
+    pandaid = extract_job_id(question) if not panda_id else panda_id
+    taskid = extract_task_id(question) if not task_id else task_id
     return get_agents(model, session_id, pandaid, taskid, cache)
+
+
+def extract_keyword_and_number(text: str):
+    """
+    Extracts keyword and number from text.
+
+    Supports 'task', 'task id', 'taskid', 'job', 'job id', 'pandaid', 'panda id'.
+    Returns (keyword, number) or (None, None) if not found.
+    """
+    # Regex pattern:
+    # - matches one of the keywords
+    # - allows optional space between word and "id"
+    # - captures the keyword and the number
+    pattern = re.compile(r"\b(task(?:\s*id)?|job(?:\s*id)?|panda(?:\s*id)?)\s*(\d+)\b", re.IGNORECASE)
+
+    match = pattern.search(text)
+    if match:
+        keyword = match.group(1).lower().replace(" ", "")  # normalize: "task id" -> "taskid"
+        number = match.group(2)
+
+        return keyword, number
+
+    return None, None
+
+
+def get_id(prompt: str) -> int or None:
+    """
+    Extract a task or job ID from the given text using a regular expression.
+
+    It is assumed that the ID is provided on the last line of the prompt,
+
+    Args:
+        prompt: The text from which to extract the task ID.
+
+    Returns:
+        int or None: The extracted task ID as an integer, or None if no task ID is found.
+    """
+    lines = prompt.strip().splitlines()
+    # remove all lines that do not start with "User: "
+    lines = [line for line in lines if line.strip().lower().startswith("user:")]
+    logger.info(f"lines to check for id: {lines}")
+
+    for line in lines:
+        _, number = extract_keyword_and_number(line)
+        if number:
+            return int(number)
+
+    match = re.match(r'^user:\s*(\d+)$', lines[-1].strip().lower())
+    if lines and match:
+        try:
+            taskid = int(match.group(1))
+            logger.info(f"Extracted Task/Job ID from last line: {taskid}")
+        except ValueError:
+            logger.warning("Could not extract Task/Job ID from the last line.")
+        return taskid
+    else:
+        logger.info(f"Failed to extract Task/Job ID from last line: {lines[-1].strip() if lines else 'N/A'}")
+
+    return None
 
 
 def main() -> None:
@@ -281,29 +393,55 @@ def main() -> None:
     agents = get_agents(args.model, args.session_id, pandaid, taskid, args.cache)
     selection_agent = SelectionAgent(agents, args.model)
 
-    category = selection_agent.answer(args.question)
+    last_question = args.question
+    prompt = ""
+    if args.session_id != "None":
+        # Retrieve context
+        history = memory.get_history(args.session_id)
+        for user_msg, agent_msg in history:
+            prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+    prompt += f"User: {last_question}"
+    category = selection_agent.answer(prompt)
     agent = agents.get(category)
-    logger.info(f"Selected agent category: {category}")
+
+    logger.info(f"Full question:\n{prompt}")
+
     if category == "document":
         logger.info(f"Selected agent category: {category} (DocumentQueryAgent)")
         answer = agent.ask(args.question)
-        logger.info(f"Answer:\n{answer}")
+        logger.info(f"Final answer (document):\n{answer}")
         return answer
     elif category == "log_analyzer":
         logger.info(f"Selected agent category: {category} (LogAnalysisAgent)")
         if pandaid is None:
-            return "Sorry, I need a PanDA ID to answer questions about job logs."
+            pandaid = get_id(prompt)
+        if pandaid is None:
+            err = "Sorry, I need a Job ID to answer questions about jobs."
+            logger.info(err)
+            return err
+        # reinitialize the agent with the correct job id
+        if not agent:
+            agent = LogAnalysisAgent(args.model, pandaid, args.cache, args.session_id)
         question = agent.generate_question("pilotlog.txt")
         answer = agent.ask(question)
-        logger.info(f"Answer:\n{answer}")
+        logger.info(f"Final answer (log analyzer):\n{answer}")
         return answer
     elif category == "task":
         logger.info(f"Selected agent category: {category} (TaskStatusAgent)")
         if taskid is None:
-            return "Sorry, I need a Task ID to answer questions about task status."
+            taskid = get_id(prompt)
+        if taskid is None:
+            err = "Sorry, I need a Task ID to answer questions about task status."
+            logger.info(err)
+            return err
+        logger.info(f"Using Task ID: {taskid}")
+        # reinitialize the agent with the correct task id
+        if not agent:
+            agent = TaskStatusAgent(args.model, taskid, args.cache, args.session_id)
+
         question = agent.generate_question()
         answer = agent.ask(question)
-        logger.info(f"Answer:\n{answer}")
+        logger.info(f"Final answer (task):\n{answer}")
         return answer
     else:
         logger.warning("Not yet implemented")

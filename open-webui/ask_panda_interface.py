@@ -22,7 +22,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from agents.selection_agent import SelectionAgent, figure_out_agents
+from agents.selection_agent import SelectionAgent, figure_out_agents, get_id
 
 
 class Pipe:
@@ -55,7 +55,7 @@ class Pipe:
         if not user_valves:
             user_valves = self.UserValves()
 
-        model = "gemini"
+        model = "mistral"
         # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
@@ -84,15 +84,19 @@ class Pipe:
             )
             print(f"__event_emitter__={__event_emitter__}")
 
+        # use the full chat history for context if available
+        dialogue_str = "\n".join(f"{m['role']}: {m['content']}"
+                                 for m in body["messages"]
+                                 if m["role"] in ("user", "assistant"))
+        print(f"Chat history:\n{dialogue_str}\n--- End of chat history ---")
+
+        _id = get_id(dialogue_str)
+        print(f"Extracted id: {_id} (don't know if it's a task id or a job id at this point)")
+
         try:
-            agents = figure_out_agents(
-                prompt,
-                model,
-                session_id,
-                cache="/Users/nilsnilsson/Development/ask-panda/cache",
-            )
+            agents = figure_out_agents(dialogue_str, model, session_id, cache="/Users/nilsnilsson/Development/ask-panda/cache")
             selection_agent = SelectionAgent(agents, model)
-            category = selection_agent.answer(prompt)
+            category = selection_agent.answer(dialogue_str)
 
             # --- NEW: if a follow-up would route to log_analyzer, override to document ---
             if is_followup and category != "document":
@@ -118,6 +122,23 @@ class Pipe:
                 answer = agent.ask(question)
             elif category == "task":
                 print(f"Selected agent category: {category} (TaskStatusAgent)")
+                if not _id:
+                    _id = get_id(prompt)
+                if not _id:
+                    answer = "failed to find the task id in the dialogue"
+                    print(answer)
+                    return answer
+
+                # reinitialize the agent with the correct task id
+                agents = figure_out_agents(prompt, model, session_id,
+                                           cache="/Users/nilsnilsson/Development/ask-panda/cache",
+                                           task_id=_id)
+                agent = agents.get(category)
+                if not agent:
+                    answer = f"failed to reinitialize the TaskStatusAgent with task id {_id}"
+                    print(answer)
+                    return answer
+
                 question = agent.generate_question()
                 answer = agent.ask(question)
             else:
