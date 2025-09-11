@@ -322,7 +322,7 @@ class PandaMCP(FastMCP):
                 "Please set the GEMINI_API_KEY environment variable."
             )
         try:
-            gemini_model = genai.GenerativeModel("models/gemini-2.0-flash")
+            gemini_model = genai.GenerativeModel("models/gemini-2.5-flash")
             response = await gemini_model.generate_content_async(
                 prompt
             )  # Use generate_content_async

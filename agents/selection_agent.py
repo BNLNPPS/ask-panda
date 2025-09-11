@@ -52,15 +52,34 @@ class SelectionAgent:
         self.session_id = session_id  # Session ID for tracking conversation
 
     def classify_question(self, question: str) -> str:
+        """
+        Classify the question into one of the predefined categories.
+
+        This is where the rules are defined to classify the question to
+        be able to select the appropriate agent.
+
+        Args:
+            question (str): The question to classify.
+
+        Returns:
+            str: The category of the question (e.g., "document", "queue", "task", "log_analyzer", "pilot_activity").
+        """
         prompt = f"""
 You are a routing assistant for a question-answering system. Your job is to classify a question into one of the following categories, based on its topic:
 
-- document: Questions about general usage, concepts, how-to guides, or explanation of systems (e.g. PanDA, prun, pathena, containers, error codes).
-- queue: Questions about site or queue data stored in a JSON file (e.g. corepower, copytool, status of a queue, which queues use rucio).
-- log_analyzer: Questions about why a specific job failed (e.g. log or failure analysis of job NNN). The word 'job', 'pandaid' or 'panda id' followed by
-an integer number must be present in the question.
-- task: Questions about a specific task's status or job counts (e.g. status of task NNN, number of failed jobs). The word 'task' followed by an integer
-number must be present.
+- document:
+    Questions about general usage, concepts, how-to guides, or explanation of systems (e.g. PanDA, prun, pathena, containers, error codes).
+    If the question contains both the words 'task' and 'job', then you should select this category,
+    unless one of those words are immediately followed by a number.
+- queue:
+    Questions about site or queue data stored in a JSON file (e.g. corepower, copytool, status of a queue, which queues use rucio).
+- log_analyzer:
+    Questions about why a specific job failed (e.g. log or failure analysis of job NNN).
+    The word 'job', 'pandaid' or 'panda id' must be followed by a number.
+    If the question contains both the words 'task' and 'job', then you should not select this category.
+- task:
+    Questions about a specific task's status or job counts (e.g. status of task NNN, number of failed jobs).
+    The word 'task' or 'task id' or 'taskid' must be followed by a number.
 - pilot_activity: Questions about pilot activity, failures, or statistics, possibly involving Grafana (e.g. pilots running on queue X, pilots failing, links to
 Grafana).
 
