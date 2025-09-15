@@ -129,7 +129,7 @@ class VectorStoreManager:
             Chroma: The newly created Chroma vector store.
         """
         documents = self._load_documents()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=150)
         chunks = splitter.split_documents(documents)
 
         vectorstore = Chroma.from_documents(
