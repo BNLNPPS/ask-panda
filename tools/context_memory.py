@@ -73,7 +73,7 @@ class ContextMemory:
             """, (session_id, datetime.datetime.now(datetime.UTC).isoformat(), user_input, agent_response))
             conn.commit()
 
-    def get_history(self, session_id: str, max_turns: int = 5) -> List[Tuple[str, str]]:
+    def get_history(self, session_id: str, max_turns: int = 2) -> List[Tuple[str, str]]:
         """
         Retrieve recent conversation history for a given session.
 
@@ -97,7 +97,7 @@ class ContextMemory:
     def summarize_history(
         self,
         session_id: str,
-        max_turns: int = 5,
+        max_turns: int = 2,
         summarize_fn: Optional[Callable[[str], str]] = None
     ) -> str:
         """
