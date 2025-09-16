@@ -20,9 +20,9 @@
 
 """Handles conversational memory using an SQLite-backed store."""
 
-import sqlite3
+import datetime
 import os
-from datetime import datetime
+import sqlite3
 from typing import List, Optional, Callable, Tuple
 
 DB_DEFAULT_PATH = os.path.expanduser("cache/context_memory.sqlite")
@@ -70,7 +70,7 @@ class ContextMemory:
             c.execute("""
                 INSERT INTO conversation (session_id, timestamp, user_input, agent_response)
                 VALUES (?, ?, ?, ?)
-            """, (session_id, datetime.utcnow().isoformat(), user_input, agent_response))
+            """, (session_id, datetime.datetime.now(datetime.UTC).isoformat(), user_input, agent_response))
             conn.commit()
 
     def get_history(self, session_id: str, max_turns: int = 5) -> List[Tuple[str, str]]:
