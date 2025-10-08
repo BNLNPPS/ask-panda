@@ -24,10 +24,13 @@ import argparse
 import ast
 # import asyncio
 import logging
+import io
+import json
 import os
 import re
 import requests
 import sys
+import tokenize
 from collections import deque
 # from fastmcp import FastMCP
 from time import sleep
@@ -49,6 +52,98 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 memory = ContextMemory()
 # mcp = FastMCP("panda")
+_CODEBLOCK_RE = re.compile(r"```(?:json|python)?\s*([\s\S]*?)```", re.IGNORECASE)
+_VALUE_END_TOKENS = {tokenize.NUMBER, tokenize.STRING, tokenize.NAME}
+_OPEN_TOKENS = {'{', '['}
+_CLOSE_TOKENS = {'}', ']'}
+
+
+def _strip_comments_tokenize(s: str) -> str:
+    """Remove Python '#' comments without touching '#' inside strings."""
+    out = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(s).readline):
+            if tok.type == tokenize.COMMENT:
+                continue
+            out.append(tok.string)
+        return "".join(out)
+    except Exception:
+        return s
+
+
+def _extract_first_code_block(text: str) -> str or None:
+    # language tag optional (```json, ```python, or plain ```)
+    m = re.search(r"```(?:\w+)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    return m.group(1).strip() if m else None
+
+
+def _extract_top_level_brace(text: str) -> str | None:
+    # Fallback: find first balanced {...} (simple but effective for these payloads)
+    i = text.find("{")
+    if i == -1:
+        return None
+    depth = 0
+    in_str = False
+    quote = ""
+    esc = False
+    for j, ch in enumerate(text[i:], start=i):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+        else:
+            if ch in ("'", '"'):
+                in_str = True
+                quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[i:j + 1]
+    return None
+
+
+def parse_answer_to_dict(raw: str) -> dict:
+    """
+    Robust parser for LLM outputs that may include prose, code fences,
+    Python-style comments, and JSON/Python differences.
+    """
+    s = (raw or "").strip()
+
+    # Prefer fenced block if present
+    block = _extract_first_code_block(s)
+    if block:
+        s = block
+
+    # If we still don't start with '{', try to slice the first {...}
+    if not s.lstrip().startswith("{"):
+        maybe = _extract_top_level_brace(s)
+        if maybe:
+            s = maybe
+
+    # 1) Try JSON
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+
+    # 2) Try Python literal (accepts True/False/None, single quotes, etc.)
+    try:
+        return ast.literal_eval(s)
+    except Exception:
+        pass
+
+    # 3) Strip Python comments and try again
+    try:
+        cleaned = _strip_comments_tokenize(s)
+        return ast.literal_eval(cleaned)
+    except Exception as e:
+        # Bubble a concise error upward; caller logs full context
+        raise SyntaxError(f"Could not parse structured payload: {e}") from e
 
 
 class TaskStatusAgent:
@@ -101,6 +196,195 @@ class TaskStatusAgent:
         Returns:
             str: The answer returned by the MCP server.
         """
+        def _insert_missing_commas_between_members(s: str) -> str:
+            """
+            Insert commas between adjacent object members when the LLM forgot them, e.g.:
+                "a": 1
+                "b": 2
+            becomes:
+                "a": 1,
+                "b": 2
+            Heuristic rules (tokenize-based, so strings stay intact):
+              - Only inside {...} (objects), not inside [...]
+              - If a *value* (NUMBER/STRING/NAME True/False/None or closing '}'/']')
+                is followed (across whitespace/comments/newlines) by a STRING token
+                that looks like a new key (i.e., followed somewhere by a ':' before a comma/'}'),
+                and there was no comma after the value, we inject a comma.
+            """
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out = []
+            stack = []  # track '{' vs '[' contexts by OP tokens
+
+            def is_true_false_none(tok):
+                return tok.type == tokenize.NAME and tok.string in ('True', 'False', 'None')
+
+            i = 0
+            while i < len(toks):
+                tok = toks[i]
+                ttype, tstr = tok.type, tok.string
+
+                # track braces/brackets
+                if ttype == tokenize.OP and tstr in _OPEN_TOKENS:
+                    stack.append(tstr)
+                elif ttype == tokenize.OP and tstr in _CLOSE_TOKENS:
+                    if stack:
+                        stack.pop()
+
+                out.append(tok)
+
+                # Only attempt comma insertion if we're inside an object
+                inside_object = bool(stack) and stack[-1] == '{'
+
+                # Detect a value end token (or closing brace/bracket) that could end a member
+                is_value_end = (
+                    ttype in _VALUE_END_TOKENS and (
+                        ttype != tokenize.NAME or is_true_false_none(tok)
+                    )
+                ) or (ttype == tokenize.OP and tstr in _CLOSE_TOKENS)
+
+                if inside_object and is_value_end:
+                    # Skip through whitespace/newlines/comments to peek the next significant token
+                    j = i + 1
+                    seen_comma = False
+                    while j < len(toks):
+                        ttype_j, tstr_j = toks[j].type, toks[j].string
+                        if ttype_j == tokenize.OP and tstr_j == ',':
+                            seen_comma = True
+                            break
+                        if ttype_j == tokenize.COMMENT or ttype_j in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT,
+                                                                      tokenize.DEDENT):
+                            j += 1
+                            continue
+                        # Next significant token encountered
+                        break
+
+                    if not seen_comma and j < len(toks):
+                        next_tok = toks[j]
+                        # If the next significant token starts a new key: it should be a STRING then ':' later
+                        if next_tok.type == tokenize.STRING:
+                            # Look ahead for ':' before a ',' or '}' at the same brace depth
+                            k = j + 1
+                            brace_depth = 0
+                            found_colon = False
+                            while k < len(toks):
+                                tt, ts = toks[k].type, toks[k].string
+                                if tt == tokenize.OP:
+                                    if ts in _OPEN_TOKENS:
+                                        brace_depth += 1
+                                    elif ts in _CLOSE_TOKENS:
+                                        if brace_depth == 0:
+                                            break
+                                        brace_depth -= 1
+                                    elif ts == ':' and brace_depth == 0:
+                                        found_colon = True
+                                        break
+                                    elif ts in (',',) and brace_depth == 0:
+                                        break
+                                if tt in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT,
+                                          tokenize.DEDENT):
+                                    k += 1
+                                    continue
+                                k += 1
+                            if found_colon:
+                                # Inject a comma token right before the skipped trivia
+                                out.insert(-1, tokenize.TokenInfo(type=tokenize.OP, string=',', start=tok.start,
+                                                                  end=tok.end, line=tok.line))
+
+                i += 1
+
+            # Reconstruct source from tokens (tokenize.untokenize handles spacing)
+            try:
+                return tokenize.untokenize(out)
+            except Exception:
+                # Fallback: join strings if untokenize fails (rare)
+                return ''.join(t.string for t in out)
+
+        def _sanitize_llmish(s: str) -> str:
+            """
+            Sanitize common LLM artifacts so the payload becomes valid Python literal:
+              - Remove trailing '%' after numeric literals:  96.19% -> 96.19
+              - Remove parenthetical annotations that appear OUTSIDE strings:  "MWT2" (Midwest ..) -> "MWT2"
+              - Insert missing commas between adjacent members inside objects
+            """
+            # Token pass 1: remove trailing % after numbers
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out = []
+            i = 0
+            while i < len(toks):
+                tok = toks[i]
+                if tok.type == tokenize.NUMBER:
+                    j = i + 1
+                    if j < len(toks) and toks[j].type == tokenize.OP and toks[j].string == '%':
+                        out.append(tok)  # keep number, drop '%'
+                        i = j + 1
+                        continue
+                out.append(tok)
+                i += 1
+            s = tokenize.untokenize(out)
+
+            # Token pass 2: strip parenthetical annotations outside strings
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out = []
+            i = 0
+            while i < len(toks):
+                tok = toks[i]
+                if tok.type == tokenize.OP and tok.string == '(':
+                    # Drop until matching ')'
+                    depth = 1
+                    i += 1
+                    while i < len(toks) and depth > 0:
+                        if toks[i].type == tokenize.OP:
+                            if toks[i].string == '(':
+                                depth += 1
+                            elif toks[i].string == ')':
+                                depth -= 1
+                        i += 1
+                    continue
+                out.append(tok)
+                i += 1
+            s = tokenize.untokenize(out)
+
+            # Token pass 3: insert missing commas
+            s = _insert_missing_commas_between_members(s)
+
+            return s
+
+        def parse_answer_to_dict(raw: str) -> dict:
+            s = (raw or "").strip()
+
+            # Prefer code fence content if present
+            block = _extract_first_code_block(s)
+            if block:
+                s = block
+
+            # If not starting with '{', try to clip the first {...}
+            if not s.lstrip().startswith("{"):
+                maybe = _extract_top_level_brace(s)
+                if maybe:
+                    s = maybe
+
+            # >>> Normalize LLM artifacts (%, comments, missing commas, annotations)
+            s = _sanitize_llmish(s)
+
+            # Try JSON
+            try:
+                return json.loads(s)
+            except Exception:
+                pass
+
+            # Try Python literal
+            try:
+                return ast.literal_eval(s)
+            except Exception:
+                pass
+
+            # Strip any remaining '#' comments and try again
+            try:
+                cleaned = _strip_comments_tokenize(s)
+                return ast.literal_eval(cleaned)
+            except Exception as e:
+                raise SyntaxError(f"Could not parse structured payload: {e}") from e
+
         server_url = f"{MCP_SERVER_URL}/rag_ask"
         response = requests.post(server_url, json={"question": question, "model": self.model})
         if response.ok:

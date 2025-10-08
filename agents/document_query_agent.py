@@ -93,7 +93,7 @@ class DocumentQueryAgent:
         prompt += "Answer the question from the user in as detailed way as possible, using the provided documentation."
         prompt += "Be sure to include any image references (including in markdown format) in your answer if they are mentioned in the documentation."
         try:
-            response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=30)
+            response = requests.post(server_url, json={"question": prompt, "model": self.model}, timeout=60)
             if response.ok:
                 try:
                     # Store interaction

@@ -51,11 +51,35 @@ class Pipe:
             "type"
         )  # may be "user_response" for real turns
 
+        # turn off follow ups for now
+
+        # 1) Hard-stop if the UI is calling the follow-up/title/notes generators
+        #    (__event_call__ naming is present in recent builds; keep the content-based fallback as well)
+        if __event_call__ in {"follow_ups", "followups", "title", "notes"}:
+            # Return an explicit empty structure so OWUI has nothing to show
+            return {"follow_ups": []}  # benign, ignored by chat renderer
+
+        # 2) Fallback heuristic: detect the default follow-up template in the messages
+        #    (Open WebUI’s default follow-up prompt contains wording like below)
+        sys_texts = " \n".join(
+            m.get("content", "")
+            for m in body.get("messages", [])
+            if m.get("role") in ("system", "assistant")
+        ).lower()
+        if (
+            "suggest 3-5 relevant follow-up" in sys_texts
+            or "follow-up questions" in sys_texts
+        ):
+            return {"follow_ups": []}
+
+        # end stop follow ups
+
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
             user_valves = self.UserValves()
 
-        model = "mistral"
+        model = "gemini"
+
         # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
@@ -71,6 +95,10 @@ class Pipe:
         else:
             session_id = "None"  # do not store follow-up suggestions etc from the UI
 
+            if model == "gemini":
+                print("NO FOLLOW-UPS FOR GEMINI")
+                return {"follow_ups": []}
+
         print(f"session id={session_id}")
         print(f"prompt: {prompt}")
         print(f"is_followup: {is_followup} (meta_type={meta_type})")  # NEW: debug
@@ -85,16 +113,25 @@ class Pipe:
             print(f"__event_emitter__={__event_emitter__}")
 
         # use the full chat history for context if available
-        dialogue_str = "\n".join(f"{m['role']}: {m['content']}"
-                                 for m in body["messages"]
-                                 if m["role"] in ("user", "assistant"))
+        dialogue_str = "\n".join(
+            f"{m['role']}: {m['content']}"
+            for m in body["messages"]
+            if m["role"] in ("user", "assistant")
+        )
         print(f"Chat history:\n{dialogue_str}\n--- End of chat history ---")
 
         _id = get_id(dialogue_str)
-        print(f"Extracted id: {_id} (don't know if it's a task id or a job id at this point)")
+        print(
+            f"Extracted id: {_id} (don't know if it's a task id or a job id at this point)"
+        )
 
         try:
-            agents = figure_out_agents(dialogue_str, model, session_id, cache="/Users/nilsnilsson/Development/ask-panda/cache")
+            agents = figure_out_agents(
+                dialogue_str,
+                model,
+                session_id,
+                cache="/Users/nilsnilsson/Development/ask-panda/cache",
+            )
             selection_agent = SelectionAgent(agents, model)
             category = selection_agent.answer(dialogue_str)
 
@@ -130,12 +167,18 @@ class Pipe:
                     return answer
 
                 # reinitialize the agent with the correct task id
-                agents = figure_out_agents(prompt, model, session_id,
-                                           cache="/Users/nilsnilsson/Development/ask-panda/cache",
-                                           task_id=_id)
+                agents = figure_out_agents(
+                    prompt,
+                    model,
+                    session_id,
+                    cache="/Users/nilsnilsson/Development/ask-panda/cache",
+                    task_id=_id,
+                )
                 agent = agents.get(category)
                 if not agent:
-                    answer = f"failed to reinitialize the TaskStatusAgent with task id {_id}"
+                    answer = (
+                        f"failed to reinitialize the TaskStatusAgent with task id {_id}"
+                    )
                     print(answer)
                     return answer
 
