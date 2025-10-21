@@ -22,7 +22,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from agents.selection_agent import SelectionAgent, figure_out_agents, get_id
+from clients.selection import Selection, figure_out_clients, get_id
 
 
 class Pipe:
@@ -78,7 +78,7 @@ class Pipe:
         if not user_valves:
             user_valves = self.UserValves()
 
-        model = "gemini"
+        model = "mistral"
 
         # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
@@ -95,9 +95,8 @@ class Pipe:
         else:
             session_id = "None"  # do not store follow-up suggestions etc from the UI
 
-            if model == "gemini":
-                print("NO FOLLOW-UPS FOR GEMINI")
-                return {"follow_ups": []}
+            print("NO FOLLOW-UPS")
+            return {"follow_ups": []}
 
         print(f"session id={session_id}")
         print(f"prompt: {prompt}")
@@ -126,24 +125,24 @@ class Pipe:
         )
 
         try:
-            agents = figure_out_agents(
+            clients = figure_out_clients(
                 dialogue_str,
                 model,
                 session_id,
                 cache="/Users/nilsnilsson/Development/ask-panda/cache",
             )
-            selection_agent = SelectionAgent(agents, model)
-            category = selection_agent.answer(dialogue_str)
+            selection_client = Selection(clients, model)
+            category = selection_client.answer(dialogue_str)
 
             # --- NEW: if a follow-up would route to log_analyzer, override to document ---
             if is_followup and category != "document":
                 # Follow-up detected: overriding category to 'document'
                 category = "document"
 
-            agent = agents.get(category)
-            print(f"Selected agent category: {category}")
+            client = clients.get(category)
+            print(f"Selected client category: {category}")
 
-            # --- OPTIONAL: normalize follow-up prompt for document agent by stripping leading ### ---
+            # --- OPTIONAL: normalize follow-up prompt for document client by stripping leading ### ---
             doc_prompt = (
                 prompt.lstrip("#").strip()
                 if (is_followup and category == "document")
@@ -151,14 +150,14 @@ class Pipe:
             )
 
             if category == "document":
-                print(f"Selected agent category: {category} (DocumentQueryAgent)")
-                answer = agent.ask(doc_prompt)  # use normalized prompt on follow-ups
+                print(f"Selected client category: {category} (DocumentQuery)")
+                answer = client.ask(doc_prompt)  # use normalized prompt on follow-ups
             elif category == "log_analyzer":
-                print(f"Selected agent category: {category} (LogAnalysisAgent)")
-                question = agent.generate_question("pilotlog.txt")
-                answer = agent.ask(question)
+                print(f"Selected client category: {category} (LogAnalysis)")
+                question = client.generate_question("pilotlog.txt")
+                answer = client.ask(question)
             elif category == "task":
-                print(f"Selected agent category: {category} (TaskStatusAgent)")
+                print(f"Selected client category: {category} (TaskStatus)")
                 if not _id:
                     _id = get_id(prompt)
                 if not _id:
@@ -166,24 +165,22 @@ class Pipe:
                     print(answer)
                     return answer
 
-                # reinitialize the agent with the correct task id
-                agents = figure_out_agents(
+                # reinitialize the client with the correct task id
+                clients = figure_out_clients(
                     prompt,
                     model,
                     session_id,
                     cache="/Users/nilsnilsson/Development/ask-panda/cache",
                     task_id=_id,
                 )
-                agent = agents.get(category)
-                if not agent:
-                    answer = (
-                        f"failed to reinitialize the TaskStatusAgent with task id {_id}"
-                    )
+                client = clients.get(category)
+                if not client:
+                    answer = f"failed to reinitialize the TaskStatus with task id {_id}"
                     print(answer)
                     return answer
 
-                question = agent.generate_question()
-                answer = agent.ask(question)
+                question = client.generate_question()
+                answer = client.ask(question)
             else:
                 answer = "Not yet implemented"
                 print(answer)

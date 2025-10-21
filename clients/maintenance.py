@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("maintenance_agent.log"),
+        logging.FileHandler("maintenance.log"),
         logging.StreamHandler()
     ]
 )
@@ -92,7 +92,7 @@ def main():
     while True:
         # Verify that the MCP server is still running
         if not psutil.pid_exists(int(args.pid)):
-            logger.error(f"MCP server with PID {args.pid} is no longer running. Exiting Smart Reporting Agent.")
+            logger.error(f"MCP server with PID {args.pid} is no longer running. Exiting mainenance client.")
             sys.exit(1)
 
         # Download error data from the given URL

@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This script is a simple command-line agent that interacts with a RAG (Retrieval-Augmented Generation) server."""
+"""This script is a simple command-line client that interacts with a RAG (Retrieval-Augmented Generation) server."""
 
 import argparse
 import logging
@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("document_query_agent.log"),
+        logging.FileHandler("document_query.log"),
         logging.StreamHandler()
     ]
 )
@@ -45,11 +45,11 @@ logger = logging.getLogger(__name__)
 memory = ContextMemory()
 
 
-class DocumentQueryAgent:
-    """A simple command-line agent that interacts with a RAG server to answer questions."""
+class DocumentQuery:
+    """A simple command-line client that interacts with a RAG server to answer questions."""
     def __init__(self, model: str, session_id: str) -> None:
         """
-        Initialize the DocumentQueryAgent with a model and session ID.
+        Initialize the DocumentQuery with a model and session ID.
 
         Args:
             model (str): The model to use for generating the answer.
@@ -85,8 +85,8 @@ class DocumentQueryAgent:
             # Retrieve context
             history = memory.get_history(self.session_id)
 
-            for user_msg, agent_msg in history:
-                prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+            for user_msg, client_msg in history:
+                prompt += f"User: {user_msg}\nAssistant: {client_msg}\n"
         prompt += f"User: {question}\nAssistant:"
         # prompt += "If the question is unclear, reply with \'How can I help you with PanDA?\'.\n"
         prompt += "You are a friendly and helpful assistant that answers questions about the PanDA system."
@@ -143,7 +143,7 @@ def main() -> None:
     """
     Parse command-line arguments, call the RAG server, and print the response.
 
-    This function serves as the main entry point for the command-line agent.
+    This function serves as the main entry point for the command-line client.
     It expects two arguments: the question to ask and the model to use.
     It calls the `ask` function to get a response from the RAG server.
     If the `ask` function returns an error (a string prefixed with "Error:"),
@@ -178,8 +178,8 @@ def main() -> None:
                         help='The model to use for generating the answer')
     args = parser.parse_args()
 
-    agent = DocumentQueryAgent(args.model, args.session_id)
-    answer = agent.ask(args.question)
+    client = DocumentQuery(args.model, args.session_id)
+    answer = client.ask(args.question)
     logger.info(f"Answer:\n{answer}")
 
 

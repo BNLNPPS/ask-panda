@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Error codes for the MCP server and agents."""
+"""Error codes for the MCP server and clients."""
 
 EC_OK = 0  # Success
 EC_SERVERNOTRUNNING = 1  # MCP server is not running

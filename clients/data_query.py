@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This agent can download task metadata from PanDA and ask an LLM to analyze the relevant parts."""
+"""This client can download task metadata from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
 import ast
@@ -45,7 +45,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("data_query_agent.log"),
+        logging.FileHandler("data_query.log"),
         logging.StreamHandler()
     ]
 )
@@ -146,14 +146,14 @@ def parse_answer_to_dict(raw: str) -> dict:
         raise SyntaxError(f"Could not parse structured payload: {e}") from e
 
 
-class TaskStatusAgent:
+class TaskStatus:
     """
-    A simple agent that can give information about task status.
-    This agent fetches metadata from PanDA, extracts relevant parts, and asks an LLM for analysis.
+    A simple client that can give information about task status.
+    This client fetches metadata from PanDA, extracts relevant parts, and asks an LLM for analysis.
     """
     def __init__(self, model: str, taskid: str, cache: str, session_id: str) -> None:
         """
-        Initialize the TaskStatusAgent with a model.
+        Initialize the TaskStatus client with a model.
 
         Args:
             model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
@@ -631,14 +631,14 @@ def main():
                         help='Session ID for the context memory')
     args = parser.parse_args()
 
-    agent = TaskStatusAgent(args.model, args.taskid, args.cache)
+    client = TaskStatus(args.model, args.taskid, args.cache)
 
     # Generate a proper question to ask the LLM based on the metadata and log files
-    question = agent.generate_question()
+    question = client.generate_question()
     logger.info(f"Asking question: \n\n{question}")
 
     # Ask the question to the LLM
-    answer = agent.ask(question)
+    answer = client.ask(question)
 
     logger.info(f"Answer from {args.model.capitalize()}:\n{answer}")
 

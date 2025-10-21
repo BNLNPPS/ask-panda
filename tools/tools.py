@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This module provides tools for the MCP server and agents,"""
+"""This module provides tools for the MCP server and clients,"""
 
 # entries = read_json("error_data_24h.json")
 # errors = extract_errors(entries) -> can be written to new file and read back when needed

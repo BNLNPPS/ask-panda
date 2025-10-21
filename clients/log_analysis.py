@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
+"""This client can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
 import ast
@@ -45,7 +45,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("log_analysis_agent.log"),
+        logging.FileHandler("log_analysis.log"),
         logging.StreamHandler()
     ]
 )
@@ -59,14 +59,14 @@ _CLOSE_TOKENS = {'}', ']'}
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-class LogAnalysisAgent:
+class LogAnalysis:
     """
-    A simple command-line agent that interacts with a RAG server to analyze log files.
-    This agent fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
+    A simple command-line client that interacts with a RAG server to analyze log files.
+    This client fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
     """
     def __init__(self, model: str, pandaid: str, cache: str, session_id: str) -> None:
         """
-        Initialize the LogAnalysisAgent with a model.
+        Initialize the LogAnalysis with a model.
 
         Args:
             model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
@@ -1311,14 +1311,14 @@ def main():
                         help='Session ID for the context memory')
     args = parser.parse_args()
 
-    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache, args.session_id)
+    client = LogAnalysis(args.model, args.pandaid, args.cache, args.session_id)
 
     # Generate a proper question to ask the LLM based on the metadata and log files
-    question = agent.generate_question(args.log_file)
+    question = client.generate_question(args.log_file)
     logger.info(f"Asking question: \n\n{question}")
 
     # Ask the question to the LLM
-    answer = agent.ask(question)
+    answer = client.ask(question)
     if not answer:
         logger.error("No answer returned from the LLM.")
         sys.exit(1)

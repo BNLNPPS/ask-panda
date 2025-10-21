@@ -51,26 +51,26 @@ class ContextMemory:
                     session_id TEXT,
                     timestamp TEXT,
                     user_input TEXT,
-                    agent_response TEXT
+                    client_response TEXT
                 )
             """)
             conn.commit()
 
-    def store_turn(self, session_id: str, user_input: str, agent_response: str) -> None:
+    def store_turn(self, session_id: str, user_input: str, client_response: str) -> None:
         """
-        Store a user-agent interaction in the conversation log.
+        Store a user-client interaction in the conversation log.
 
         Args:
             session_id (str): Unique ID for the conversation session.
             user_input (str): The user query or prompt.
-            agent_response (str): The response from the agent/LLM.
+            client_response (str): The response from the client/LLM.
         """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute("""
-                INSERT INTO conversation (session_id, timestamp, user_input, agent_response)
+                INSERT INTO conversation (session_id, timestamp, user_input, client_response)
                 VALUES (?, ?, ?, ?)
-            """, (session_id, datetime.datetime.now(datetime.UTC).isoformat(), user_input, agent_response))
+            """, (session_id, datetime.datetime.now(datetime.UTC).isoformat(), user_input, client_response))
             conn.commit()
 
     def get_history(self, session_id: str, max_turns: int = 4) -> List[Tuple[str, str]]:
@@ -82,12 +82,12 @@ class ContextMemory:
             max_turns (int): Maximum number of previous turns to retrieve.
 
         Returns:
-            List[Tuple[str, str]]: A list of (user_input, agent_response) pairs.
+            List[Tuple[str, str]]: A list of (user_input, client_response) pairs.
         """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute("""
-                SELECT user_input, agent_response FROM conversation
+                SELECT user_input, client_response FROM conversation
                 WHERE session_id = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -117,8 +117,8 @@ class ContextMemory:
             return "No conversation history available."
 
         conversation_text = ""
-        for user_input, agent_response in history:
-            conversation_text += f"User: {user_input}\nAssistant: {agent_response}\n"
+        for user_input, client_response in history:
+            conversation_text += f"User: {user_input}\nAssistant: {client_response}\n"
 
         prompt = (
             "Summarize the following conversation between a user and an assistant:\n\n"

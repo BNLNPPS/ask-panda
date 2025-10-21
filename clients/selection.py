@@ -27,9 +27,9 @@ import sys
 from json import JSONDecodeError
 from time import sleep
 
-from agents.document_query_agent import DocumentQueryAgent
-from agents.log_analysis_agent import LogAnalysisAgent
-from agents.data_query_agent import TaskStatusAgent
+from clients.document_query import DocumentQuery
+from clients.log_analysis import LogAnalysis
+from clients.data_query import TaskStatus
 from tools.context_memory import ContextMemory
 from tools.errorcodes import EC_TIMEOUT
 from tools.server_utils import MCP_SERVER_URL, check_server_health
@@ -39,7 +39,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("selection_agent.log"),
+        logging.FileHandler("selection.log"),
         logging.StreamHandler()
     ]
 )
@@ -47,9 +47,9 @@ logger = logging.getLogger(__name__)
 memory = ContextMemory()
 
 
-class SelectionAgent:
-    def __init__(self, agents: dict, model: str, session_id: str = None) -> None:
-        self.agents = agents  # dict like {"document": ..., "queue": ...}
+class Selection:
+    def __init__(self, clients: dict, model: str, session_id: str = None) -> None:
+        self.clients = clients  # dict like {"document": ..., "queue": ...}
         self.model = model        # e.g., OpenAI or Anthropic wrapper
         self.session_id = session_id  # Session ID for tracking conversation
 
@@ -58,7 +58,7 @@ class SelectionAgent:
         Classify the question into one of the predefined categories.
 
         This is where the rules are defined to classify the question to
-        be able to select the appropriate agent.
+        be able to select the appropriate client.
 
         Args:
             question (str): The question to classify.
@@ -97,7 +97,7 @@ Classify the following question:
 Output only one of the categories: document, queue, task, log, or pilot.
 """
         result = self.ask(prompt, returnstring=True).strip().lower()
-        return result if result in self.agents else "document"
+        return result if result in self.clients else "document"
 
     import re
 
@@ -194,9 +194,9 @@ Output only one of the categories: document, queue, task, log, or pilot.
             return f"Error: Network issue or server unreachable - {e}"
 
 
-def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid: str or None, cache: str) -> dict:
+def get_clients(model: str, session_id: str or None, pandaid: str or None, taskid: str or None, cache: str) -> dict:
     """
-    Create and return a dictionary of agents for different categories.
+    Create and return a dictionary of clients for different categories.
 
     Args:
         model (str): The model to use for generating answers.
@@ -206,13 +206,13 @@ def get_agents(model: str, session_id: str or None, pandaid: str or None, taskid
         cache (str): The location of the cache directory.
 
     Returns:
-        dict: A dictionary mapping agent categories to their respective agent classes.
+        dict: A dictionary mapping client categories to their respective client classes.
     """
     return {
-        "document": DocumentQueryAgent(model, session_id),
+        "document": DocumentQuery(model, session_id),
         "queue": None,
-        "task": TaskStatusAgent(model, taskid, cache, session_id) if session_id and taskid else None,
-        "log_analyzer": LogAnalysisAgent(model, pandaid, cache, session_id) if pandaid else None,
+        "task": TaskStatus(model, taskid, cache, session_id) if session_id and taskid else None,
+        "log_analyzer": LogAnalysis(model, pandaid, cache, session_id) if pandaid else None,
         "pilot_activity": None
     }
 
@@ -253,11 +253,11 @@ def extract_task_id(text: str) -> int or None:
     return None
 
 
-def figure_out_agents(question: str, model: str, session_id: str, cache: str = None, task_id: int = None, panda_id: int = None) -> dict:
+def figure_out_clients(question: str, model: str, session_id: str, cache: str = None, task_id: int = None, panda_id: int = None) -> dict:
     """
-    Determine the appropriate agent to handle the given question.
+    Determine the appropriate client to handle the given question.
 
-    This function is used by the UI's pipe function to figure out which agents to initialize.
+    This function is used by the UI's pipe function to figure out which clients to initialize.
 
     Args:
         question (str): The question to be answered.
@@ -267,13 +267,13 @@ def figure_out_agents(question: str, model: str, session_id: str, cache: str = N
         task_id (str): The task ID, if known.
         panda_id (str): The PanDA ID for the job, if known.
     Returns:
-        dict: A dictionary mapping agent categories to their respective agent classes.
+        dict: A dictionary mapping client categories to their respective client classes.
     """
     # does the question contain a job or task id?
     # use a regex to extract "job NNNNN" from args.question
     pandaid = extract_job_id(question) if not panda_id else panda_id
     taskid = extract_task_id(question) if not task_id else task_id
-    return get_agents(model, session_id, pandaid, taskid, cache)
+    return get_clients(model, session_id, pandaid, taskid, cache)
 
 
 def extract_keyword_and_number(text: str):
@@ -339,7 +339,7 @@ def main() -> None:
     """
     Parse command-line arguments, call the RAG server, and print the response.
 
-    This function serves as the main entry point for the command-line agent.
+    This function serves as the main entry point for the command-line client.
     It expects two arguments: the question to ask and the model to use.
     It calls the `ask` function to get a response from the RAG server.
     If the `ask` function returns an error (a string prefixed with "Error:"),
@@ -390,44 +390,44 @@ def main() -> None:
     else:
         logger.info("No Task ID found in the question.")
 
-    agents = get_agents(args.model, args.session_id, pandaid, taskid, args.cache)
-    selection_agent = SelectionAgent(agents, args.model)
+    clients = get_clients(args.model, args.session_id, pandaid, taskid, args.cache)
+    selection_client = Selection(clients, args.model)
 
     last_question = args.question
     prompt = ""
     if args.session_id != "None":
         # Retrieve context
         history = memory.get_history(args.session_id)
-        for user_msg, agent_msg in history:
-            prompt += f"User: {user_msg}\nAssistant: {agent_msg}\n"
+        for user_msg, client_msg in history:
+            prompt += f"User: {user_msg}\nAssistant: {client_msg}\n"
     prompt += f"User: {last_question}"
-    category = selection_agent.answer(prompt)
-    agent = agents.get(category)
+    category = selection_client.answer(prompt)
+    client = clients.get(category)
 
     logger.info(f"Full question:\n{prompt}")
 
     if category == "document":
-        logger.info(f"Selected agent category: {category} (DocumentQueryAgent)")
-        answer = agent.ask(args.question)
+        logger.info(f"Selected client category: {category} (DocumentQuery)")
+        answer = client.ask(args.question)
         logger.info(f"Final answer (document):\n{answer}")
         return answer
     elif category == "log_analyzer":
-        logger.info(f"Selected agent category: {category} (LogAnalysisAgent)")
+        logger.info(f"Selected client category: {category} (LogAnalysis)")
         if pandaid is None:
             pandaid = get_id(prompt)
         if pandaid is None:
             err = "Sorry, I need a Job ID to answer questions about jobs."
             logger.info(err)
             return err
-        # reinitialize the agent with the correct job id
-        if not agent:
-            agent = LogAnalysisAgent(args.model, pandaid, args.cache, args.session_id)
-        question = agent.generate_question("pilotlog.txt")
-        answer = agent.ask(question)
+        # reinitialize the client with the correct job id
+        if not client:
+            client = LogAnalysis(args.model, pandaid, args.cache, args.session_id)
+        question = client.generate_question("pilotlog.txt")
+        answer = client.ask(question)
         logger.info(f"Final answer (log analyzer):\n{answer}")
         return answer
     elif category == "task":
-        logger.info(f"Selected agent category: {category} (TaskStatusAgent)")
+        logger.info(f"Selected client category: {category} (TaskStatus)")
         if taskid is None:
             taskid = get_id(prompt)
         if taskid is None:
@@ -435,20 +435,20 @@ def main() -> None:
             logger.info(err)
             return err
         logger.info(f"Using Task ID: {taskid}")
-        # reinitialize the agent with the correct task id
-        if not agent:
-            agent = TaskStatusAgent(args.model, taskid, args.cache, args.session_id)
+        # reinitialize the client with the correct task id
+        if not client:
+            client = TaskStatus(args.model, taskid, args.cache, args.session_id)
 
-        question = agent.generate_question()
-        answer = agent.ask(question)
+        question = client.generate_question()
+        answer = client.ask(question)
         logger.info(f"Final answer (task):\n{answer}")
         return answer
     else:
         logger.warning("Not yet implemented")
-    if agent is None:
+    if client is None:
         return "Sorry, I don’t have enough information to answer that kind of question."
 
-    return "Sorry, I found no agent to answer that kind of question."
+    return "Sorry, I found no client to answer that kind of question."
 
 
 if __name__ == "__main__":

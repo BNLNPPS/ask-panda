@@ -22,7 +22,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from agents.document_query_agent import DocumentQueryAgent
+from clients.document_query import DocumentQuery
 
 
 class Pipe:
@@ -73,8 +73,8 @@ class Pipe:
             print(f"__event_emitter__={__event_emitter__}")
 
         try:
-            agent = DocumentQueryAgent(model, session_id)
-            answer = agent.ask(prompt)
+            client = DocumentQuery(model, session_id)
+            answer = client.ask(prompt)
         except Exception as e:
             final_answer = f"[ERROR] {type(e).__name__}: {str(e)}"
 

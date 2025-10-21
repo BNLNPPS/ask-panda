@@ -69,9 +69,11 @@ python3 -m agents.document_query_agent  --question="Please list all of the PanDA
 ```
 
 The agent can also be imported and used in Python code as follows:
+
 ```python
-from agents.document_query_agent import DocumentQueryAgent
-agent = DocumentQueryAgent(model='openai', session_id='12345')
+from clients.document_query import DocumentQuery
+
+agent = DocumentQuery(model='openai', session_id='12345')
 answer = agent.query("What is PanDA?")
 print(answer)
 answer = agent.query("Please give more details")
