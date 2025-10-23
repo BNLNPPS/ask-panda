@@ -10,7 +10,7 @@ command line interfaces that allow for interaction with various AI models.
 
 **Note**: This project is in development. It is currently using HuggingFace embedding models for static conversations.
 
-![Ask PanDA MCP Service.](https://cern.ch/atlas-panda-pilot/images/Ask_PanDA_diagram2.png)
+![Ask PanDA MCP Service.](https://cern.ch/atlas-panda-pilot/images/Ask_PanDA_v6_clean.png)
 
 **Warning** The diagram above still mentions "agents", which should be "clients".
 
