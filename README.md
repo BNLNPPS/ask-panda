@@ -12,8 +12,6 @@ command line interfaces that allow for interaction with various AI models.
 
 ![Ask PanDA MCP Service.](https://cern.ch/atlas-panda-pilot/images/Ask_PanDA_v6_clean.png)
 
-**Warning** The diagram above still mentions "agents", which should be "clients".
-
 # Features
 - **Multi-Model Support**: Interact with various AI models including OpenAI, Anthropic, Gemini, and Llama.
 - **Customizable**: Easily add or modify models and their configurations.
