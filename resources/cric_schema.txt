@@ -1,0 +1,104 @@
+Table queuedata (rows: 227):
+  - record_id TEXT PRIMARY KEY
+  - acopytools TEXT  (JSON: keys[es_events:array, es_events_read:array, es_logs:array, pl:array, pls:array, pr:array, pw:array, read_lan:array, write_lan:array])
+  - allow_lan INTEGER
+  - allow_wan INTEGER
+  - appdir TEXT
+  - astorages TEXT  (JSON: keys[es_events:array, pl:array, pr:array, pw:array, read_lan:array, read_lan_analysis:array, write_lan:array, write_lan_analysis:array])
+  - atlas_site TEXT
+  - availablecpu INTEGER
+  - cachedse INTEGER
+  - capability TEXT
+  - catchall TEXT
+  - cloud TEXT
+  - comment TEXT
+  - container_options TEXT
+  - container_type TEXT
+  - copytools TEXT  (JSON: keys[gfalcopy:object, mv:object, objectstore:object, rucio:object, xrdcp:object])
+  - corecount INTEGER
+  - coreenergy REAL
+  - coreenergy_data TEXT  (JSON: keys[coreenergy:real, coreenergy_on:boolean, parent_coreenergy:real, parent_coreenergy_on:boolean, parent_rc_site_coreenergy:real, parent_site_coreenergy:real, parent_site_coreenergy_on:boolean, rc_site_coreenergy:real, scope:string, site_coreenergy:real, site_coreenergy_on:boolean])
+  - corepower REAL
+  - corepower_data TEXT  (JSON: keys[corepower:real, corepower_on:boolean, parent_corepower:real, parent_corepower_on:boolean, parent_rc_site_corepower:real, parent_site_corepower:real, parent_site_corepower_on:boolean, rc_site_corepower:real, scope:string, site_corepower:real, site_corepower_on:boolean])
+  - country TEXT
+  - countrygroup TEXT
+  - depthboost INTEGER
+  - description TEXT
+  - direct_access_lan INTEGER
+  - direct_access_wan INTEGER
+  - environ TEXT
+  - fairsharepolicy TEXT
+  - gocname TEXT
+  - gstat TEXT
+  - harvester TEXT
+  - harvester_template TEXT
+  - hc_param TEXT
+  - hc_suite TEXT  (JSON: list[string:59])
+  - id INTEGER
+  - is_cvmfs INTEGER
+  - is_default INTEGER
+  - is_virtual INTEGER
+  - jobseed TEXT
+  - last_modified TEXT
+  - localqueue TEXT
+  - maxdiskio INTEGER
+  - maxdiskio_data TEXT  (JSON: keys[maxdiskio:null, maxdiskio_on:boolean, parent_maxdiskio:null, parent_maxdiskio_on:boolean, parent_rc_site_maxdiskio:null, parent_site_maxdiskio:null, parent_site_maxdiskio_on:boolean, rc_site_maxdiskio:null, scope:string, site_maxdiskio:null, site_maxdiskio_on:boolean])
+  - maxinputsize INTEGER
+  - maxrss INTEGER
+  - maxtime INTEGER
+  - maxwdir INTEGER
+  - meanrss INTEGER
+  - minrss INTEGER
+  - mintime INTEGER
+  - name TEXT
+  - nickname TEXT
+  - nodes INTEGER
+  - panda_resource TEXT
+  - panda_site TEXT
+  - params TEXT  (JSON: keys[OS:string, allow_altstageout:boolean, hc.follow_queue:string, jdl.plusattr.WantIPv6Only:string, jdl.plusattr.remote_Requirements:string, jdl.plusattr.requestDisk:integer, job_maxwalltime:boolean, k8s.annotations.safe_to_evict:boolean, k8s.host_image:string, k8s.namespace:string, k8s.resources.ephemeral_storage_offset:integer, k8s.resources.limits.ephemeral_storage_limit_safety_factor:integer, k8s.resources.limits.memory_limit_min_offset:integer, k8s.resources.limits.memory_limit_safety_factor:integer, k8s.resources.limits.use_memory_limit:boolean, k8s.resources.requests.cpu_scheduling_ratio:integer, k8s.resources.use_ephemeral_storage_resource_specs:boolean, k8s.scheduler.use_score_mcore_anti_affinity:boolean, k8s.use_active_deadline_seconds:boolean, maxNewWorkersPerCycle:integer, maxWorkers:integer, nQueueLimitJob:integer, nQueueLimitJobMin:integer, nQueueLimitWorkerMin:integer, pilot:integer, pilot_args:string, pilot_rss_grace:integer, pilot_url:string, pilot_version:string, resource_type_limits.MCORE:integer, resource_type_limits.MCORE_HIMEM:integer, resource_type_limits.SCORE:integer, resource_type_limits.SCORE_HIMEM:integer, resource_type_limits.SCORE_LOMEM:integer, resource_type_limits.SCORE_VHIMEM:integer, tags:array, test_int:integer, test_list:array, test_string:string, unified_dispatch:boolean, ups_core_target:integer])
+  - parent TEXT
+  - pilot_manager TEXT
+  - pilot_version TEXT
+  - pledgedcpu INTEGER
+  - probe TEXT
+  - python_version TEXT
+  - queuehours INTEGER
+  - queues TEXT  (JSON: list[object:107])
+  - rc TEXT
+  - rc_country TEXT
+  - rc_site TEXT
+  - rc_site_state TEXT
+  - region TEXT
+  - releases TEXT  (JSON: list[string:50])
+  - resource_type TEXT
+  - site TEXT
+  - site_state TEXT
+  - siteid TEXT
+  - special_par TEXT
+  - state TEXT
+  - state_comment TEXT
+  - state_update TEXT
+  - status TEXT
+  - tier TEXT
+  - tier_level INTEGER
+  - timefloor INTEGER
+  - transferringlimit INTEGER
+  - type TEXT
+  - uconfig TEXT  (JSON: keys[hc:object, jdl:object, k8s:object, resource_type_limits:object])
+  - use_pcache INTEGER
+  - validatedreleases TEXT
+  - vo_name TEXT
+  - wnconnectivity TEXT
+  - workflow TEXT
+  - zip_time_gap INTEGER
+  - raw_json TEXT  (JSON: keys[acopytools:object, allow_lan:boolean, allow_wan:boolean, appdir:string, astorages:object, atlas_site:string, availablecpu:null, cachedse:null, capability:string, catchall:string, cloud:string, comment:string, container_options:string, container_type:string, copytools:object, corecount:integer, coreenergy:real, coreenergy_data:object, corepower:real, corepower_data:object, country:string, countrygroup:string, depthboost:null, description:string, direct_access_lan:boolean, direct_access_wan:boolean, environ:string, fairsharepolicy:string, gocname:string, gstat:string, harvester:string, harvester_template:string, hc_param:string, hc_suite:array, id:integer, is_cvmfs:boolean, is_default:boolean, is_virtual:boolean, jobseed:string, last_modified:string, localqueue:string, maxdiskio:null, maxdiskio_data:object, maxinputsize:integer, maxrss:integer, maxtime:integer, maxwdir:integer, meanrss:integer, minrss:integer, mintime:integer, name:string, nickname:string, nodes:integer, panda_resource:string, panda_site:string, params:object, parent:string, pilot_manager:string, pilot_version:string, pledgedcpu:null, probe:null, python_version:string, queuehours:integer, queues:array, rc:string, rc_country:string, rc_site:string, rc_site_state:string, region:string, releases:array, resource_type:string, site:string, site_state:string, siteid:string, special_par:string, state:string, state_comment:string, state_update:string, status:string, tier:string, tier_level:integer, timefloor:integer, transferringlimit:null, type:string, uconfig:object, use_pcache:boolean, validatedreleases:string, vo_name:string, wnconnectivity:string, workflow:string, zip_time_gap:integer])
+  Indexes:
+    - UNIQUE sqlite_autoindex_queuedata_1 (record_id)
+
+Table queuedata__column_map (rows: 91):
+  - original_name TEXT PRIMARY KEY
+  - stored_name TEXT NOT NULL
+  Indexes:
+    - UNIQUE sqlite_autoindex_queuedata__column_map_1 (original_name)
+
+Note: JSON columns can be queried via SQLite JSON1 (e.g., json_extract(col, '$.path')).
