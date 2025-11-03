@@ -22,10 +22,18 @@ Note:
     3. It takes the CRICdescription.txt and cric_schema.txt as the background knowledge,
        which should be improved in the near future.
 
+The two-agent discussion workflow is like this:
+
+Question ====> CRICanalysisClient -------> SQL query  ======> execute SQL =======> LLM =======> Answer
+                      Λ                        |                Λ         context
+                      |                        |                |
+                      |         false          V         true   |
+                 suggestions  <------- SQLcriticClient --------->       
+
 Rui XUE, r.xue@cern.ch
 Oct, 2025
 '''
-
+import sys
 import sqlite3
 import os
 import argparse
@@ -34,12 +42,24 @@ import google.generativeai as genai
 from pathlib import Path
 from langchain_huggingface import HuggingFaceEmbeddings
 from keybert import KeyBERT
+from SQLcritic import SQLcriticClient
 
+MAX_DISCUSS = 3
 FIELDS_LIMIT = 10
 ROWS_LIMIT = 30
 TABLE = "queuedata"
 
 current_dir = Path(__file__).parent
+
+sys.path.append(str(current_dir.parent / "tools"))
+import txt2vecdb
+
+# if the vector database does not exist, 
+# call txt2vecdb function to convert schema.txt to schemaDB
+if not (current_dir.parent / "resources" / "schemaDB").exists():
+    txt2vecdb.ToVecDB()
+    print("Schema Vector Database Generated! \n")
+
 schema_path = current_dir.parent / "resources" / "cric_schema.txt"
 CRICdb_path = current_dir.parent / "resources" / "queuedata.db"
 
@@ -313,9 +333,29 @@ class CRICanalysisClient:
 def workflow(args):
 
     client = CRICanalysisClient(schema_path)
+    critic_client = SQLcriticClient(args.question, None)
+
     if (client.is_related(args.question)):
         fields = client.suggest_fields(args.question)
-        SQLquery = client.generate_SQL(args.question, fields)
+
+        ques = str(args.question)
+        # two client discussion, no more than MAX_DISCUSS rounds
+        _bool = True
+        for _ in range(MAX_DISCUSS):
+            SQLquery = client.generate_SQL(ques, fields)
+            # if _ == 0:
+            #     SQLquery = "select distinct name from queuedata where copytools != 'rucio'"
+            print(SQLquery)
+            critic_client.query = SQLquery
+            _bool, _suggestion = critic_client.criticize()
+            if (_bool):
+                break
+            print("Suggestion: ", _suggestion)
+            ques = str(args.question) + _suggestion
+        if not _bool:
+            print(f"Cannot generate reasonable SQL query within {MAX_DISCUSS} rounds. \n Please rephrase the question instead. \n")
+            return
+        
         result = client.execute_SQL(SQLquery)
         print("\n")
         print("$"*20)
