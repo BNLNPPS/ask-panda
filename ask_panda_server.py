@@ -155,6 +155,10 @@ class PandaMCP(FastMCP):
     async def _call_mistral(self, prompt: str) -> str:
         """
         Use the official Mistral SDK for cleaner, more reliable API calls.
+
+        Model: mistral-large-latest
+        Note: Requires appropriate API tier access. Can be changed to
+              mistral-small-latest or open-mistral-7b for lower tiers.
         """
         api_key = os.getenv("MISTRAL_API_KEY")
         if not api_key:

@@ -23,9 +23,62 @@ chatbot eventually.
 - **Open Source**: Built with transparency in mind, allowing for community contributions and improvements.
 
 # Installation
+
+## Local Installation
 ```
 pip install -r requirements.txt
 ```
+
+## Docker Installation
+
+You can run Ask-PanDA and the Ollama shim in Docker containers with Docker Compose:
+
+1. Copy the environment template and configure your API keys:
+```bash
+cp .env.example .env
+# Edit .env and add at least MISTRAL_API_KEY (or other LLM API keys)
+```
+
+2. Build and start the services:
+```bash
+docker compose up -d
+```
+
+This will start two services:
+- **ask-panda**: Main server on port 8001 (external) → 8000 (internal)
+  - Uses `open-mistral-7b` model by default
+  - Includes RAG with vector store for PanDA documentation
+- **ollama-shim**: Ollama-compatible API on port 11435 (external) → 11434 (internal)
+  - Exposes `mistral-proxy:latest` model
+  - Forwards requests to Ask-PanDA's RAG endpoint
+  - Avoids conflict with localhost Ollama on port 11434
+
+3. Check service status:
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+4. Test the setup:
+```bash
+./test-docker-setup.sh
+```
+
+5. Stop the services:
+```bash
+docker compose down
+```
+
+**Network Configuration:**
+- Services run in an isolated Docker network (`ask-panda-network`)
+- Internal communication uses service names (e.g., `http://ask-panda:8000`)
+- External access via mapped ports (8001 and 11435)
+
+**Port Mapping Summary:**
+- `8000` - Local Ask-PanDA server (non-Docker, if running)
+- `8001` - Ask-PanDA Docker container
+- `11434` - Local Ollama server (if running)
+- `11435` - Ollama shim Docker container
 
 # Environment Variables
 Ensure that at least one of these keys are set in your environment for secure API access, and select the
@@ -204,6 +257,54 @@ open-webui serve
 ```
 
 (Let it run in it's own virtual environment - it wil produce a lot of output).
+
+## Ollama Shim for Open WebUI
+
+### Docker Deployment (Recommended)
+
+The Ollama shim is included in the Docker Compose setup and runs on port 11435 (to avoid conflicts with local Ollama on 11434).
+
+**Configuration:**
+- Port 11435 (external) → 11434 (internal container)
+- Uses `open-mistral-7b` model via Mistral API
+- Automatically connects to Ask-PanDA service via Docker network
+
+**Setup for Open WebUI:**
+1. Make sure Docker services are running:
+   ```bash
+   docker compose up -d
+   ```
+
+2. Configure Open WebUI to use the shim:
+   - Go to Admin Panel → Settings → Connections
+   - For Docker Open WebUI: Set `OLLAMA_BASE_URL=http://host.docker.internal:11435`
+   - For local Open WebUI: Set `OLLAMA_BASE_URL=http://localhost:11435`
+
+3. The model `mistral-proxy:latest` will appear in the model picker
+
+**Model Configuration:**
+- The shim currently uses the `/rag_ask` endpoint for better performance
+- Uses Mistral's `open-mistral-7b` model (configured in `ask_panda_server.py`)
+- Responses include RAG-enhanced context from your documentation
+
+### Standalone Deployment
+
+If you want to run the shim without Docker:
+
+```bash
+python3 ollama_shim.py
+```
+
+The shim listens on port `11434` by default and forwards the chat/generate
+requests to the Ask PanDA HTTP API.
+
+**Environment variables:**
+- `ASK_PANDA_BASE_URL` (default `http://localhost:8000`) – base URL for the Ask PanDA server
+- `OLLAMA_SHIM_MODEL` (default `mistral`) – backend model name
+- `OLLAMA_SHIM_MODEL_DISPLAY` (default `mistral-proxy`) – model name shown in Open WebUI
+- `OLLAMA_SHIM_PORT` (default `11434`) – port to listen on
+
+**Note:** When running standalone, ensure your MISTRAL_API_KEY is set in the environment.
 
 # Vector store
 
