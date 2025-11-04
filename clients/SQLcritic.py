@@ -180,18 +180,25 @@ class SQLcriticClient():
 
 
 def test():
-    query = '''
-    select distinct site from queuedata where copytools != "rucio"
-    '''
-    question = "which sites are not using the rucio copytool?"
-    
     # query = '''
-    # select distinct country from queuedata where tier_level=2
+    # select distinct site from queuedata where copytools = "rucio"
+    # '''
+    # question = "which sites are using the rucio copytool?"
+    
+
+    # query = '''
+    # delete distinct country from queuedata where tier_level=1
     # '''
     # question = '''
-    # please help me to find out all countries that hold tier_level=1 sites. Finally please exclude all those countries from North America.
+    # please help me to delete out all countries that hold tier_level=1 sites.
     # '''
     
+    query = '''
+    select distinct country from queuedata where tier_level=1
+    '''
+    question = '''
+    please help me to select out all countries that hold tier_level=1 sites.
+    '''
     # query = '''
     # select panda, country from queuedata
     # '''
@@ -199,6 +206,8 @@ def test():
     # question = '''
     # what is panda system? please use cric data to help explain
     # '''
+    print("Test Question: ", question)
+    print("Test Query: ", query)
     crtic_client = SQLcriticClient(question, query)
     print(crtic_client.criticize())
 

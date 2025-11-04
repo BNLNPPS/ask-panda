@@ -3,15 +3,24 @@ CRIC database analysis client
 
 WorkFlow:
 
--- Calling Gemini
+-- Call Gemini
     -- Verify whether the question is related to the CRIC database or not.
     -- Generate the fields (database schema) that could relate to the question.
     -- Generate the SQL query
 
+-- Discuss with SQLcriticClient
+    -- The SQLcriticClient will review the SQL query
+        If the SQL query is fine, then approve it.
+        If the SQL query is problematic, then return with suggestions
+            The CRICanalysisClient will regenerate SQL according to the suggestion.
+    -- After MAX_DISCUSS
+        If no conclusion is reached, just returns with warnings.
+        If conclusion is reached, continue to execute.                   
+
 -- Execute without LLM
     -- Execute the SQL query, fetch the data
 
--- Calling Gemini
+-- Call Gemini
     -- Take the data as the input context, output the answer based on the question.
 
 Note:
@@ -345,7 +354,6 @@ def workflow(args):
             SQLquery = client.generate_SQL(ques, fields)
             # if _ == 0:
             #     SQLquery = "select distinct name from queuedata where copytools != 'rucio'"
-            print(SQLquery)
             critic_client.query = SQLquery
             _bool, _suggestion = critic_client.criticize()
             if (_bool):

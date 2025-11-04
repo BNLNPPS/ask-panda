@@ -72,6 +72,6 @@ def checkDB(field:str):
     return
 
 if __name__ == "__main__":
-    # ToVecDB()
+    ToVecDB()
     checkDB("CoCo")
     checkDB("copytools")

@@ -4,6 +4,7 @@ faiss-cpu
 fastapi
 fastmcp
 google-generativeai
+keybert
 langchain
 langchain_community
 langchain-chroma
@@ -15,5 +16,7 @@ openai
 psutil
 requests
 sentence-transformers
+sentry-sdk
+sql_metadata
 transformers
 uvicorn[standard]
