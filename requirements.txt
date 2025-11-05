@@ -1,5 +1,5 @@
 anthropic
-chromadb==0.6.3
+chromadb>=1.0.0
 faiss-cpu
 fastapi
 fastmcp

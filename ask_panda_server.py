@@ -155,6 +155,10 @@ class PandaMCP(FastMCP):
     async def _call_mistral(self, prompt: str) -> str:
         """
         Use the official Mistral SDK for cleaner, more reliable API calls.
+
+        Model: mistral-large-latest
+        Note: Requires appropriate API tier access. Can be changed to
+              mistral-small-latest or open-mistral-7b for lower tiers.
         """
         api_key = os.getenv("MISTRAL_API_KEY")
         if not api_key:
@@ -431,3 +435,48 @@ async def rag_ask(request: QuestionRequest) -> dict[str, str]:
 
     logger.info(f"Query processed using model '{request.model.lower()}'.")
     return {"answer": response_text}
+
+
+@app.post("/agent_ask")
+async def agent_ask(request: QuestionRequest) -> dict[str, str]:
+    """
+    Full agent routing endpoint - routes questions to specialized agents.
+    """
+    from agents.selection_agent import SelectionAgent, figure_out_agents
+
+    logger.info(f"Agent query: '{request.question}' using model: '{request.model}'")
+
+    try:
+        agents = figure_out_agents(
+            request.question,
+            request.model.lower(),
+            session_id="api",
+            cache="/app/cache"
+        )
+
+        selection_agent = SelectionAgent(agents, request.model.lower())
+        category = selection_agent.answer(request.question)
+        agent = agents.get(category)
+
+        logger.info(f"Routed to: {category}")
+
+        if category == "document":
+            answer = agent.ask(request.question)
+        elif category == "log_analyzer":
+            question = agent.generate_question("pilotlog.txt")
+            answer = agent.ask(question)
+        elif category == "task":
+            question = agent.generate_question()
+            answer = agent.ask(question)
+        else:
+            answer = "Not yet implemented"
+
+        if isinstance(answer, dict):
+            final_answer = answer.get("answer", "No answer provided")
+        else:
+            final_answer = answer
+
+        return {"answer": final_answer, "category": category}
+    except Exception as e:
+        logger.error(f"Agent error: {e}")
+        return {"answer": f"Error: {str(e)}", "category": "error"}

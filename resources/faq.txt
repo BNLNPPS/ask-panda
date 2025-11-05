@@ -1,0 +1,31 @@
+Frequently asked questions.
+
+------------------------------------------------
+Question:
+How do I get help with using PanDA?
+
+Answer:
+In case of suggestions, questions, or problems with:
+* Running analysis: See ATLAS talk (https://atlas-talk.web.cern.ch/c/distributed-computing-help/17) or email DAST experts (hn-atlas-dist-analysis-help@cern.ch)
+* Monitoring: Write email to atlas-adc-pandamon-support@cern.ch or use mattermost (https://mattermost.web.cern.ch/adcvcr/channels/adc-bigpanda)
+------------------------------------------------
+Question:
+My task is not working
+
+Answer:
+Can you please provide the corresponding PanDA task ID
+------------------------------------------------
+Question:
+My job is not working
+
+Answer:
+Can you please provide the corresponding PanDA job ID
+------------------------------------------------
+Question:
+(user provided NUMBER)
+
+Answer:
+log_analyzer (only that and nothing else since it will be used by the selection agent - if the conversation is about a PanDA job)
+task (only that and nothing else since it will be used by the selection agent - if the conversation is about a PanDA task)
+unknown (if it is not clear from the conversation what the number means)
+------------------------------------------------
