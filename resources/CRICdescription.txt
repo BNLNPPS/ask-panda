@@ -1,0 +1,34 @@
+CRIC (Computing Resource Information Catalogue)
+
+CRIC is a unified information system used in distributed computing infrastructures such as WLCG, ATLAS, and PanDA. 
+It provides a central catalogue of configuration and status information about computing and storage resources, sites, services, and queues used for large-scale scientific workflows.
+
+Main purposes and functions:
+
+1. Resource Description:
+   - CRIC stores static configuration information about resource centers (sites), computing elements (queues, batch systems), storage endpoints, and network services.
+   - It describes available CPU, memory, disk capacity, and supported middleware.
+
+2. Experiment-Specific Configuration:
+   - Beyond generic resource descriptions, CRIC contains experiment-level configurations.
+   - For ATLAS and PanDA, CRIC defines which sites and queues are available, their priorities, memory limits, job types, and pilot configurations.
+
+3. Topology and Relationships:
+   - CRIC maintains the topology and hierarchy of resources (for example, which services belong to which site, and how sites are grouped into federations or clouds).
+
+4. Status and Monitoring:
+   - It may expose dynamic information such as whether a site or queue is enabled, the current job load, site downtime, and service availability.
+
+5. APIs and Interfaces:
+   - CRIC provides REST APIs and web interfaces for querying resource information.
+   - Other systems (like PanDA’s brokerage, job submission, or monitoring services) use CRIC as a reference source to make scheduling decisions.
+
+6. Extensibility:
+   - While originally designed for WLCG and ATLAS, CRIC’s data model is generic and can be extended for other experiments or infrastructures.
+
+In the PanDA ecosystem:
+- CRIC serves as the authoritative source for information about sites, queues, and pilot configurations.
+- When the PanDA brokerage assigns a job, it queries CRIC to determine which sites are available, what resources they have, and whether they are currently operational.
+- CRIC data helps ensure efficient job scheduling and accurate resource accounting.
+
+In summary, CRIC acts as the "resource knowledge base" of PanDA — describing what computing resources exist, how they are configured, and what their current status is.

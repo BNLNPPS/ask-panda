@@ -20,9 +20,9 @@
 
 """Handles conversational memory using an SQLite-backed store."""
 
-import sqlite3
+import datetime
 import os
-from datetime import datetime
+import sqlite3
 from typing import List, Optional, Callable, Tuple
 
 DB_DEFAULT_PATH = os.path.expanduser("cache/context_memory.sqlite")
@@ -58,22 +58,22 @@ class ContextMemory:
 
     def store_turn(self, session_id: str, user_input: str, agent_response: str) -> None:
         """
-        Store a user-agent interaction in the conversation log.
+        Store a user-client interaction in the conversation log.
 
         Args:
             session_id (str): Unique ID for the conversation session.
             user_input (str): The user query or prompt.
-            agent_response (str): The response from the agent/LLM.
+            agent_response (str): The response from the client/LLM.
         """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute("""
                 INSERT INTO conversation (session_id, timestamp, user_input, agent_response)
                 VALUES (?, ?, ?, ?)
-            """, (session_id, datetime.utcnow().isoformat(), user_input, agent_response))
+            """, (session_id, datetime.datetime.now(datetime.UTC).isoformat(), user_input, agent_response))
             conn.commit()
 
-    def get_history(self, session_id: str, max_turns: int = 5) -> List[Tuple[str, str]]:
+    def get_history(self, session_id: str, max_turns: int = 4) -> List[Tuple[str, str]]:
         """
         Retrieve recent conversation history for a given session.
 
@@ -97,7 +97,7 @@ class ContextMemory:
     def summarize_history(
         self,
         session_id: str,
-        max_turns: int = 5,
+        max_turns: int = 2,
         summarize_fn: Optional[Callable[[str], str]] = None
     ) -> str:
         """

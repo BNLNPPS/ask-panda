@@ -18,16 +18,20 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This agent can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
+"""This client can download a log file from PanDA and ask an LLM to analyze the relevant parts."""
 
 import argparse
 import ast
 # import asyncio
+import html
+import io
+import json
 import logging
 import os
 import re
 import requests
 import sys
+import tokenize
 from collections import deque
 # from fastmcp import FastMCP
 from time import sleep
@@ -41,23 +45,27 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("log_analysis_agent.log"),
+        logging.FileHandler("log_analysis.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 memory = ContextMemory()
 # mcp = FastMCP("panda")
+_CODEBLOCK_RE = re.compile(r"```(?P<lang>[A-Za-z0-9_+\-]*)\s*\n(?P<code>.*?)(?:```|$)", re.S)
+_VALUE_END_TOKENS = {tokenize.NUMBER, tokenize.STRING, tokenize.NAME}
+_OPEN_TOKENS = {'{', '['}
+_CLOSE_TOKENS = {'}', ']'}
+_TAG_RE = re.compile(r"<[^>]+>")
 
-
-class LogAnalysisAgent:
+class LogAnalysis:
     """
-    A simple command-line agent that interacts with a RAG server to analyze log files.
-    This agent fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
+    A simple command-line client that interacts with a RAG server to analyze log files.
+    This client fetches log files from PanDA, extracts relevant parts, and asks an LLM for analysis.
     """
     def __init__(self, model: str, pandaid: str, cache: str, session_id: str) -> None:
         """
-        Initialize the LogAnalysisAgent with a model.
+        Initialize the LogAnalysis with a model.
 
         Args:
             model (str): The model to use for generating the answer (e.g., 'openai', 'anthropic').
@@ -70,7 +78,7 @@ class LogAnalysisAgent:
             self.pandaid = int(pandaid)  # PanDA job ID for the analysis
         except ValueError:
             logger.error(f"Invalid PanDA ID: {pandaid}. It should be an integer.")
-            sys.exit(1)
+            return
 
         self.cache = cache
         if not os.path.exists(self.cache):
@@ -79,7 +87,7 @@ class LogAnalysisAgent:
                 os.makedirs(self.cache)
             except OSError as e:
                 logger.error(f"Failed to create cache directory {self.cache}: {e}")
-                sys.exit(1)
+                return
 
         path = os.path.join(os.path.join(self.cache, "jobs"), str(self.pandaid))
         if not os.path.exists(path):
@@ -88,7 +96,7 @@ class LogAnalysisAgent:
                 os.makedirs(path)
             except OSError as e:
                 logger.error(f"Failed to create directory {path}: {e}")
-                sys.exit(1)
+                return
 
         self.session_id = session_id  # Session ID for tracking conversation
 
@@ -102,15 +110,196 @@ class LogAnalysisAgent:
         Returns:
             str: The answer returned by the MCP server.
         """
+        def _insert_missing_commas_between_members(s: str) -> str:
+            """
+            Insert commas between adjacent object members when the LLM forgot them, e.g.:
+                "a": 1
+                "b": 2
+            becomes:
+                "a": 1,
+                "b": 2
+            Heuristic rules (tokenize-based, so strings stay intact):
+              - Only inside {...} (objects), not inside [...]
+              - If a *value* (NUMBER/STRING/NAME True/False/None or closing '}'/']')
+                is followed (across whitespace/comments/newlines) by a STRING token
+                that looks like a new key (i.e., followed somewhere by a ':' before a comma/'}'),
+                and there was no comma after the value, we inject a comma.
+            """
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out, stack, last_value = [], [], False
+            i = 0
+            while i < len(toks):
+                tok = toks[i]
+                ttype, tstr = tok.type, tok.string
+                if ttype == tokenize.OP and tstr in "{[":
+                    stack.append(tstr);
+                    last_value = False
+                elif ttype == tokenize.OP and tstr in "}]":
+                    if stack: stack.pop()
+                    last_value = True
+                out.append(tok)
+                if stack and stack[-1] == "{" and last_value:
+                    j = i + 1
+                    while j < len(toks) and toks[j].type in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT,
+                                                             tokenize.DEDENT, tokenize.COMMENT):
+                        out.append(toks[j]);
+                        j += 1
+                    if j < len(toks) and toks[j].type == tokenize.NAME:
+                        out.append(tokenize.TokenInfo(type=tokenize.OP, string=",", start=tok.start, end=tok.end,
+                                                      line=tok.line))
+                        last_value = False
+                        i = j - 1
+                i += 1
+            return _safe_untok(out)
 
-        def extract_python_literal(s: str) -> str:
-            # strip fences if present
-            m = re.search(r"```(?:python)?\s*(\{.*\})\s*```", s, flags=re.S)
-            return m.group(1) if m else s.strip()
+
+        def _sanitize_llmish(s: str) -> str:
+            """
+            Sanitize common LLM artifacts so the payload becomes valid Python literal:
+              - Remove trailing '%' after numeric literals:  96.19% -> 96.19
+              - Remove parenthetical annotations that appear OUTSIDE strings:  "MWT2" (Midwest ..) -> "MWT2"
+              - Insert missing commas between adjacent members inside objects
+            """
+            # remove trailing '%' after numeric literals; then try adding commas
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out = []
+            for tok in toks:
+                if tok.type == tokenize.OP and tok.string == "%" and out and out[-1].type == tokenize.NUMBER:
+                    continue
+                out.append(tok)
+            s = _safe_untok(out)
+            return _insert_missing_commas_between_members(s)
+
+
+        def _strip_html_tags_and_unescape(s: str) -> str:
+            """
+            Remove HTML tags from the payload and unescape HTML entities.
+            This is applied to the extracted code block only.
+            """
+            return html.unescape(_TAG_RE.sub("", s or ""))
+
+        def _quote_unquoted_keys(s: str) -> str:
+            """
+            Quote bare object keys inside {…}, e.g.:
+                description: "..."
+            ->  "description": "..."
+
+            Rules:
+            - Only inside dicts {…}, not lists.
+            - If a NAME token is followed (after trivia) by ':' at the same nesting level,
+              replace NAME with a STRING token "NAME".
+            - Leaves existing strings and numbers intact (numbers can be keys in Python).
+            """
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out, stack = [], []
+
+            def next_sig(idx):
+                j = idx + 1
+                while j < len(toks):
+                    if toks[j].type in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
+                                        tokenize.COMMENT):
+                        j += 1;
+                        continue
+                    return j
+                return None
+
+            for i, tok in enumerate(toks):
+                ttype, tstr = tok.type, tok.string
+                if ttype == tokenize.OP and tstr in ("{", "["):
+                    stack.append(tstr)
+                elif ttype == tokenize.OP and tstr in ("}", "]"):
+                    if stack: stack.pop()
+                if stack and stack[-1] == "{" and ttype == tokenize.NAME:
+                    j = next_sig(i)
+                    if j is not None and toks[j].type == tokenize.OP and toks[j].string == ":":
+                        tok = tokenize.TokenInfo(type=tokenize.STRING, string=f'"{tstr}"', start=tok.start, end=tok.end,
+                                                 line=tok.line)
+                out.append(tok)
+            return _safe_untok(out)
+
+
+        def _fill_missing_values_with_none(s: str) -> str:
+            """
+            If a dict member looks like:  "key":  <comma|}|] or only trivia,
+            insert a Python None as the value so ast.literal_eval can parse.
+            Works only inside {...}.
+            """
+            toks = list(tokenize.generate_tokens(io.StringIO(s).readline))
+            out, stack = [], []
+
+            def next_sig(idx):
+                j = idx + 1
+                while j < len(toks):
+                    if toks[j].type in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
+                                        tokenize.COMMENT):
+                        j += 1;
+                        continue
+                    return j
+                return None
+
+            i = 0
+            while i < len(toks):
+                tok = toks[i];
+                ttype, tstr = tok.type, tok.string
+                if ttype == tokenize.OP and tstr in ("{", "["):
+                    stack.append(tstr)
+                elif ttype == tokenize.OP and tstr in ("}", "]"):
+                    if stack: stack.pop()
+                out.append(tok)
+                if stack and stack[-1] == "{" and ttype == tokenize.OP and tstr == ":":
+                    j = next_sig(i)
+                    if j is None or (toks[j].type == tokenize.OP and toks[j].string in {",", "}", "]"}):
+                        out.append(tokenize.TokenInfo(type=tokenize.NAME, string="None", start=tok.start, end=tok.end,
+                                                      line=tok.line))
+                i += 1
+            return _safe_untok(out)
+
 
         def parse_answer_to_dict(raw: str) -> dict:
-            payload = extract_python_literal(raw)
-            return ast.literal_eval(payload)  # works with triple-quoted strings
+            """
+            Robust parser for LLM outputs that may include prose, code fences, HTML-ish tags,
+            Python-style comments, missing commas/values, and JSON/Python differences.
+            """
+            s = (raw or "").strip()
+
+            # Prefer fenced block if present
+            block = _extract_first_code_block(s)
+            if block:
+                s = block
+
+            # Remove HTML tags/entities (e.g., <b>…</b>)
+            s = _strip_html_tags_and_unescape(s)
+
+            # If we still don't start with '{', try to slice the first {...}
+            if not s.lstrip().startswith("{"):
+                maybe = _extract_top_level_brace(s)
+                if maybe:
+                    s = maybe
+
+            # First attempts: raw JSON/Python
+            for attempt in (lambda x: json.loads(x),
+                            lambda x: ast.literal_eval(x),
+                            lambda x: ast.literal_eval(_strip_comments_tokenize(x))):
+                try:
+                    return attempt(s)
+                except Exception:
+                    pass
+
+            # Normalize & repair common LLM artifacts, then try again
+            s = _sanitize_llmish(s)
+            s = _quote_unquoted_keys(s)
+            s = _fill_missing_values_with_none(s)
+
+            for attempt in (lambda x: json.loads(x),
+                            lambda x: ast.literal_eval(x),
+                            lambda x: ast.literal_eval(_strip_comments_tokenize(x))):
+                try:
+                    return attempt(s)
+                except Exception:
+                    pass
+
+            # Last resort: surface a concise error; caller can log `s` if needed
+            raise SyntaxError("Could not parse structured payload")
 
         server_url = f"{MCP_SERVER_URL}/rag_ask"
         import time
@@ -146,10 +335,11 @@ class LogAnalysisAgent:
                 return f"{err}"
 
             # format the answer for better readability
-            formatted_answer = format_answer(answer_dict)
+            formatted_answer = format_answer_auto(answer_dict)
             if not formatted_answer:
-                logger.error(f"Failed to format the answer from the LLM using: {answer_dict}")
-                sys.exit(1)
+                ret = f"Failed to format the answer from the LLM using: {answer_dict}"
+                logger.error(ret)
+                return ret
 
             logger.info(f"Answer from {self.model.capitalize()}:\n{formatted_answer}")
 
@@ -288,7 +478,7 @@ class LogAnalysisAgent:
 
         # Special case: just return last num_lines from payload logs
         if error_pattern == "" and "payload" in log_file:
-            num_lines = 100
+            num_lines = 400
             with open(log_file, 'r', encoding='utf-8') as file:
                 lines = deque(file, maxlen=num_lines)  # keeps last num_lines lines
             if output_file:
@@ -467,8 +657,9 @@ Here's the error description:
             logger.warning(
                 f"No log files found for PandaID {self.pandaid} - will proceed with only superficial knowledge of failure.")
         elif not file_dictionary:
-            logger.warning(f"Error: Failed to fetch files for PandaID {self.pandaid}.")
-            sys.exit(1)
+            ret = f"Error: Failed to fetch files for PandaID {self.pandaid}"
+            logger.warning(ret)
+            return ret
 
         # Extract the relevant parts for error analysis
         if len(file_dictionary) == 1 and 'json' in file_dictionary:
@@ -476,8 +667,10 @@ Here's the error description:
             output_file = None
         else:
             if file_dictionary and log_file not in file_dictionary and exit_code != EC_NOTFOUND:
-                logger.warning(f"Error: Log file {log_file} not found in the fetched files.")
-                sys.exit(1)
+                ret = f"Error: Log file {log_file} not found in the fetched files."
+                logger.warning(ret)
+                return ret
+
             output_file = f"{self.pandaid}-{log_file}_extracted.txt"
             log_file_path = file_dictionary.get(log_file) if file_dictionary else None
             if log_file_path:
@@ -496,13 +689,325 @@ Here's the error description:
         # Formulate the question based on the extracted lines and metadata
         question = self.formulate_question(output_file, metadata_dictionary)
         if not question:
-            logger.warning("No question could be generated.")
-            sys.exit(1)
+            ret = "Error: Failed to generate a question for the LLM."
+            logger.warning(ret)
+            return ret
 
         return question
 
 
+def _strip_comments_tokenize(s: str) -> str:
+    out = []
+    for tok in tokenize.generate_tokens(io.StringIO(s).readline):
+        if tok.type != tokenize.COMMENT:
+            out.append(tok)
+    try:
+        return tokenize.untokenize(out)
+    except Exception:
+        return "".join(t.string for t in out)
+
+
+def _extract_first_code_block(text: str) -> str | None:
+    m = _CODEBLOCK_RE.search(text or "")
+    return m.group("code") if m else None
+
+
+def _extract_top_level_brace(text: str) -> str | None:
+    s = _CODEBLOCK_RE.sub("", text or "")
+    i = s.find("{")
+    if i == -1:
+        return None
+    depth = 0; in_str = False; quote = ""; esc = False
+    for j, ch in enumerate(s[i:], start=i):
+        if in_str:
+            if esc: esc = False
+            elif ch == "\\": esc = True
+            elif ch == quote: in_str = False
+        else:
+            if ch in ("'", '"'):
+                in_str = True; quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[i:j+1]
+    return None
+
+
+def _safe_untok(toks):
+    try:
+        return tokenize.untokenize(toks)
+    except Exception:
+        return "".join(t.string for t in toks)
+
+
+def _try_parse_block(s: str):
+    t = s.strip()
+    # 1) Try strict JSON
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    # 2) Try Python literal (handles None/True/False, single quotes, tuples)
+    try:
+        return ast.literal_eval(t)
+    except Exception:
+        pass
+    # 3) Strip comments safely, then try again
+    try:
+        cleaned = _strip_comments_tokenize(t)
+        return ast.literal_eval(cleaned)
+    except Exception as e:
+        logger.debug(f"Could not parse code block: {e}")
+        return None
+
+
+def _extract_top_level_mapping(text: str):
+    """
+    As a last resort, find the first top-level {...} outside fences,
+    respecting quotes/escapes.
+    """
+    # Remove fenced blocks entirely first
+    s = _CODEBLOCK_RE.sub("", text)
+    i = s.find("{")
+    if i == -1:
+        return None
+    depth = 0
+    in_str = False
+    quote = ""
+    esc = False
+    for j, ch in enumerate(s[i:], start=i):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+        else:
+            if ch in ("'", '"'):
+                in_str = True
+                quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    block = s[i:j + 1]
+                    return _try_parse_block(block)
+    return None
+
+
+def _pick_preface_and_obj(text: str):
+    # Try each fenced block, prefer ones that look like a mapping/list
+    first_match = None
+    for m in _CODEBLOCK_RE.finditer(text):
+        if first_match is None:
+            first_match = m  # remember for preface slicing
+        block = m.group(1)
+        if block.lstrip()[:1] in ("{", "["):
+            obj = _try_parse_block(block)
+            if isinstance(obj, (dict, list)):
+                preface = text[:m.start()].strip()
+                return preface, obj
+    # No parseable fenced block: try raw extraction
+    obj = _extract_top_level_mapping(text)
+    if isinstance(obj, (dict, list)):
+        return "", obj
+    return None, None
+
+
+def format_answer_auto(answer) -> str:
+    """
+    Accepts dicts/lists directly, or strings that may contain a code-fenced
+    JSON/Python dict. Uses your existing `format_answer` for dicts.
+    """
+    # Already structured?
+    if isinstance(answer, dict):
+        return format_answer(answer)
+    if isinstance(answer, list):
+        # Render a simple bullet list if you like; or wrap in a dict.
+        return "\n".join(f"* {item}" for item in answer)
+
+    # String path (LLM narrative + code block)
+    if isinstance(answer, str):
+        preface, obj = _pick_preface_and_obj(answer)
+        if isinstance(obj, dict):
+            body = format_answer(obj)
+            return f"{preface}\n\n{body}".strip() if preface else body
+        if isinstance(obj, list):
+            body = "\n".join(f"* {item}" for item in obj)
+            return f"{preface}\n\n{body}".strip() if preface else body
+        # Could not parse -> return as-is
+        return answer
+
+    # Fallback
+    return str(answer)
+
+
+def format_answer_auto_old(answer) -> str:
+    """
+    Accepts either:
+      - dict-like structures
+      - strings (possibly with a fenced code block containing JSON/Python dict)
+    Returns Markdown using `format_answer` for dicts when possible.
+    """
+    # Case 1: already a dict-like -> format directly
+    if isinstance(answer, dict):
+        return format_answer(answer)
+
+    # Case 2: plain string (maybe with code block)
+    if isinstance(answer, str):
+        # Try to extract the *first* fenced code block
+        m = _CODEBLOCK_RE.search(answer)
+        if not m:
+            # No code block -> return as-is
+            return answer
+
+        preface = answer[:m.start()].strip()
+        block = m.group(1).strip()
+
+        # Attempt JSON first
+        parsed = None
+        try:
+            parsed = json.loads(block)
+        except Exception:
+            # Try Python-literal (handles single quotes, True/False, etc.)
+            try:
+                parsed = ast.literal_eval(block)
+            except Exception as e:
+                logger.debug(f"Could not parse code block as JSON or Python literal: {e}")
+
+        if isinstance(parsed, dict):
+            formatted = format_answer(parsed)
+            # Keep any preface text that came before the code block
+            return f"{preface}\n\n{formatted}".strip() if preface else formatted
+
+        # Couldn’t parse -> return original string unchanged
+        return answer
+
+    # Fallback for unexpected types
+    return str(answer)
+
+
 def format_answer(answer: dict) -> str:
+    """
+    Robustly format an LLM answer that may be either:
+      a) your original schema {<code>: {"description": ..., "non_expert_guidance": ..., "expert_guidance": ...}}
+      b) a multi-section report like {"job_overview": {...}, "status_and_timing": {...}, ...}
+      c) a simple metadata string
+    Returns Markdown.
+    """
+    logger.info(f"answer dictionary to format: {answer} type={type(answer)}")
+
+    # If the whole thing is just a string, return it
+    if isinstance(answer, str):
+        return answer
+
+    if not isinstance(answer, dict) or not answer:
+        return str(answer)
+
+    # --- Helpers ------------------------------------------------------------
+    def titleize(key: str) -> str:
+        return key.replace("_", " ").strip().capitalize()
+
+    def bulletize_list(items, depth=0) -> str:
+        indent = "  " * depth
+        return "\n".join(f"{indent}* {stringify(v, depth)}" for v in items)
+
+    def bulletize_dict(d: dict, depth=0) -> str:
+        lines = []
+        for k, v in d.items():
+            key_line = f"* **{titleize(str(k))}:**"
+            val_md = stringify(v, depth + 1)
+            if isinstance(v, (dict, list)):
+                # put complex structures on next line, indented
+                lines.append(f"{'  '*depth}{key_line}\n{val_md}")
+            else:
+                # keep scalars on the same line
+                scalar = stringify(v, depth).lstrip()  # avoid double spaces
+                lines.append(f"{'  ' * depth}{key_line} {scalar}")
+        return "\n".join(lines)
+
+    def stringify(value, depth=0) -> str:
+        """Convert any value into Markdown at the given indentation depth."""
+        if value is None:
+            return "None"
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return bulletize_list(value, depth)
+        if isinstance(value, dict):
+            # Keep dicts readable as bullets
+            return bulletize_dict(value, depth + 1)
+        return str(value)
+
+    # --- Path A: detect your original single-key schema ---------------------
+    # Look for exactly one top-level item whose value has "description" or either guidance blocks.
+    def is_original_schema(obj: dict) -> bool:
+        if len(obj) != 1:
+            return False
+        _k, v = next(iter(obj.items()))
+        return isinstance(v, dict) and any(
+            key in v for key in ("description", "non_expert_guidance", "expert_guidance")
+        )
+
+    if is_original_schema(answer):
+        _code, v = next(iter(answer.items()))
+        to_store = ""
+
+        description = v.get("description")
+        if description:
+            to_store += f"**Description:**\n{stringify(description)}\n\n"
+
+        non = v.get("non_expert_guidance")
+        if isinstance(non, dict) and non:
+            problem = non.get("problem")
+            if problem:
+                to_store += f"**Non-expert guidance - problem:**\n{stringify(problem)}\n\n"
+            possible_causes = non.get("possible_causes")
+            if possible_causes:
+                to_store += "**Non-expert guidance - possible causes:**\n"
+                to_store += f"{stringify(possible_causes)}\n\n"
+            recommendations = non.get("recommendations")
+            if recommendations:
+                to_store += "**Non-expert guidance - recommendations:**\n"
+                to_store += f"{stringify(recommendations)}\n\n"
+
+        exp = v.get("expert_guidance")
+        if isinstance(exp, dict) and exp:
+            analysis = exp.get("analysis")
+            if analysis:
+                to_store += f"**Expert guidance - analysis:**\n{stringify(analysis)}\n\n"
+            investigation_steps = exp.get("investigation_steps")
+            if investigation_steps:
+                to_store += "**Expert guidance - investigation steps:**\n"
+                to_store += f"{stringify(investigation_steps)}\n\n"
+            possible_scenarios = exp.get("possible_scenarios")
+            if possible_scenarios:
+                to_store += "**Expert guidance - possible scenarios:**\n"
+                to_store += f"{stringify(possible_scenarios)}\n\n"
+
+        return to_store.strip() or "(no details)"
+
+    # --- Path B: generic multi-section dict (like your logged object) -------
+    # Produce a nice section per top-level key.
+    parts = []
+    for section, content in answer.items():
+        header = f"**{titleize(str(section))}:**"
+        body = stringify(content, depth=0)
+        if body:
+            parts.append(f"{header}\n{body}")
+        else:
+            parts.append(f"{header}\n(none)")
+
+    return "\n\n".join(parts).strip()
+
+
+def format_answer_old(answer: dict) -> str:
     """
     Format the answer dictionary into a human-readable string.
 
@@ -606,14 +1111,14 @@ def main():
                         help='Session ID for the context memory')
     args = parser.parse_args()
 
-    agent = LogAnalysisAgent(args.model, args.pandaid, args.cache, args.session_id)
+    client = LogAnalysis(args.model, args.pandaid, args.cache, args.session_id)
 
     # Generate a proper question to ask the LLM based on the metadata and log files
-    question = agent.generate_question(args.log_file)
+    question = client.generate_question(args.log_file)
     logger.info(f"Asking question: \n\n{question}")
 
     # Ask the question to the LLM
-    answer = agent.ask(question)
+    answer = client.ask(question)
     if not answer:
         logger.error("No answer returned from the LLM.")
         sys.exit(1)

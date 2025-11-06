@@ -18,7 +18,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""This module provides tools for the MCP server and agents,"""
+"""This module provides tools for the MCP server and clients,"""
 
 # entries = read_json("error_data_24h.json")
 # errors = extract_errors(entries) -> can be written to new file and read back when needed
@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Optional
 
 from tools.errorcodes import EC_OK, EC_NOTFOUND, EC_UNKNOWN_ERROR
@@ -45,6 +46,16 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+class Timer:
+    """ Simple timer class to measure elapsed time."""
+    def __init__(self, name):
+        self.name, self.t0 = name, time.perf_counter()
+
+    def done(self):
+        dt = (time.perf_counter() - self.t0) * 1000
+        logger.info("NET %s took %.1f ms", self.name, dt)
 
 
 # async def fetch_data(panda_id: int, filename: str = None, workdir: str = "cache", jsondata: bool = False, url: str = None) -> tuple[int, Optional[str]]:

@@ -1122,12 +1122,7 @@ CHEP 2018 proceedings.
 
 ## Wikis
 
-[Pilot 1 Wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/PandaPilot)
-
-[Pilot 2 Wiki](https://twiki.cern.ch/twiki/bin/view/PanDA/Pilot2)
 The Pilot is normally used as a command-line tool and launched by a wrapper script sent to the batch systems by a Pilot Factory. In case this is not wanted but some Pilot functionality is still needed, an external user may call relevant functions via simplified Pilot APIs that provide convenient access to internal Pilot modules and functions that otherwise may be difficult to use. Other APIs include the Services API (benchmarking, memory monitoring and analysis package) and Communicator API (server interactions).
-
-![](http://atlas-panda-pilot.web.cern.ch/atlas-panda-pilot/images/Pilot_2_APIs.jpg)
 
 The APIs are further described below.
 

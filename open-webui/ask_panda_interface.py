@@ -22,7 +22,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from agents.selection_agent import SelectionAgent, figure_out_agents
+from clients.selection import Selection, figure_out_clients, get_id
 
 
 class Pipe:
@@ -51,11 +51,35 @@ class Pipe:
             "type"
         )  # may be "user_response" for real turns
 
+        # turn off follow ups for now
+
+        # 1) Hard-stop if the UI is calling the follow-up/title/notes generators
+        #    (__event_call__ naming is present in recent builds; keep the content-based fallback as well)
+        if __event_call__ in {"follow_ups", "followups", "title", "notes"}:
+            # Return an explicit empty structure so OWUI has nothing to show
+            return {"follow_ups": []}  # benign, ignored by chat renderer
+
+        # 2) Fallback heuristic: detect the default follow-up template in the messages
+        #    (Open WebUI’s default follow-up prompt contains wording like below)
+        sys_texts = " \n".join(
+            m.get("content", "")
+            for m in body.get("messages", [])
+            if m.get("role") in ("system", "assistant")
+        ).lower()
+        if (
+            "suggest 3-5 relevant follow-up" in sys_texts
+            or "follow-up questions" in sys_texts
+        ):
+            return {"follow_ups": []}
+
+        # end stop follow ups
+
         user_valves = __user__.get("valves") if __user__ else None
         if not user_valves:
             user_valves = self.UserValves()
 
-        model = "gemini"
+        model = "mistral"
+
         # user_id = __user__.get("id")
         last_assistant_message = body["messages"][-1]
         prompt = last_assistant_message["content"]
@@ -71,6 +95,9 @@ class Pipe:
         else:
             session_id = "None"  # do not store follow-up suggestions etc from the UI
 
+            print("NO FOLLOW-UPS")
+            return {"follow_ups": []}
+
         print(f"session id={session_id}")
         print(f"prompt: {prompt}")
         print(f"is_followup: {is_followup} (meta_type={meta_type})")  # NEW: debug
@@ -84,25 +111,38 @@ class Pipe:
             )
             print(f"__event_emitter__={__event_emitter__}")
 
+        # use the full chat history for context if available
+        dialogue_str = "\n".join(
+            f"{m['role']}: {m['content']}"
+            for m in body["messages"]
+            if m["role"] in ("user", "assistant")
+        )
+        print(f"Chat history:\n{dialogue_str}\n--- End of chat history ---")
+
+        _id = get_id(dialogue_str)
+        print(
+            f"Extracted id: {_id} (don't know if it's a task id or a job id at this point)"
+        )
+
         try:
-            agents = figure_out_agents(
-                prompt,
+            clients = figure_out_clients(
+                dialogue_str,
                 model,
                 session_id,
                 cache="/Users/nilsnilsson/Development/ask-panda/cache",
             )
-            selection_agent = SelectionAgent(agents, model)
-            category = selection_agent.answer(prompt)
+            selection_client = Selection(clients, model)
+            category = selection_client.answer(dialogue_str)
 
             # --- NEW: if a follow-up would route to log_analyzer, override to document ---
             if is_followup and category != "document":
                 # Follow-up detected: overriding category to 'document'
                 category = "document"
 
-            agent = agents.get(category)
-            print(f"Selected agent category: {category}")
+            client = clients.get(category)
+            print(f"Selected client category: {category}")
 
-            # --- OPTIONAL: normalize follow-up prompt for document agent by stripping leading ### ---
+            # --- OPTIONAL: normalize follow-up prompt for document client by stripping leading ### ---
             doc_prompt = (
                 prompt.lstrip("#").strip()
                 if (is_followup and category == "document")
@@ -110,16 +150,37 @@ class Pipe:
             )
 
             if category == "document":
-                print(f"Selected agent category: {category} (DocumentQueryAgent)")
-                answer = agent.ask(doc_prompt)  # use normalized prompt on follow-ups
+                print(f"Selected client category: {category} (DocumentQuery)")
+                answer = client.ask(doc_prompt)  # use normalized prompt on follow-ups
             elif category == "log_analyzer":
-                print(f"Selected agent category: {category} (LogAnalysisAgent)")
-                question = agent.generate_question("pilotlog.txt")
-                answer = agent.ask(question)
+                print(f"Selected client category: {category} (LogAnalysis)")
+                question = client.generate_question("pilotlog.txt")
+                answer = client.ask(question)
             elif category == "task":
-                print(f"Selected agent category: {category} (TaskStatusAgent)")
-                question = agent.generate_question()
-                answer = agent.ask(question)
+                print(f"Selected client category: {category} (TaskStatus)")
+                if not _id:
+                    _id = get_id(prompt)
+                if not _id:
+                    answer = "failed to find the task id in the dialogue"
+                    print(answer)
+                    return answer
+
+                # reinitialize the client with the correct task id
+                clients = figure_out_clients(
+                    prompt,
+                    model,
+                    session_id,
+                    cache="/Users/nilsnilsson/Development/ask-panda/cache",
+                    task_id=_id,
+                )
+                client = clients.get(category)
+                if not client:
+                    answer = f"failed to reinitialize the TaskStatus with task id {_id}"
+                    print(answer)
+                    return answer
+
+                question = client.generate_question()
+                answer = client.ask(question)
             else:
                 answer = "Not yet implemented"
                 print(answer)
