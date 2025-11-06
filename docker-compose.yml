@@ -1,0 +1,72 @@
+# Ask-PanDA Docker Compose Configuration
+# ========================================
+# This setup runs Ask-PanDA with an Ollama-compatible shim for Open WebUI integration.
+#
+# Services:
+#   - ask-panda: Main RAG server with Mistral API backend (port 8001)
+#   - ollama-shim: Ollama API compatibility layer (port 11435)
+#
+# Usage:
+#   docker compose up -d          # Start services
+#   docker compose logs -f        # View logs
+#   docker compose down           # Stop services
+#   ./test-docker-setup.sh        # Test the setup
+#
+# Configuration:
+#   Copy .env.example to .env and add your MISTRAL_API_KEY
+#
+services:
+  ask-panda:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ask-panda:latest
+    container_name: ask-panda-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./cache:/app/cache
+      - ./chromadb:/app/chromadb
+      - ./resources:/app/resources
+    environment:
+      # Add your API keys here or use .env file
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - LLAMA_API_URL=${LLAMA_API_URL:-}
+    networks:
+      - ask-panda-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ollama-shim:
+    build:
+      context: .
+      dockerfile: Dockerfile.shim
+    image: ollama-shim:latest
+    container_name: ollama-shim
+    ports:
+      # Map internal 11434 to external 11435 to avoid conflict with localhost Ollama
+      - "11435:11434"
+    environment:
+      # Point to the ask-panda service in the Docker network
+      - ASK_PANDA_BASE_URL=http://ask-panda:8000
+      - OLLAMA_SHIM_MODEL=${OLLAMA_SHIM_MODEL:-mistral}
+      - OLLAMA_SHIM_MODEL_DISPLAY=${OLLAMA_SHIM_MODEL_DISPLAY:-mistral-proxy}
+      - OLLAMA_SHIM_PORT=11434
+      - OLLAMA_SHIM_VERSION=${OLLAMA_SHIM_VERSION:-v0.0-shim}
+    networks:
+      - ask-panda-network
+    depends_on:
+      ask-panda:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  ask-panda-network:
+    driver: bridge

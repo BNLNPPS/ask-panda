@@ -1,0 +1,22 @@
+# Ollama Shim service container image
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install minimal dependencies for the shim
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+        fastapi==0.115.5 \
+        uvicorn==0.32.1 \
+        httpx==0.28.1
+
+# Copy only the shim script
+COPY ollama_shim.py .
+
+EXPOSE 11434
+
+CMD ["python", "ollama_shim.py"]
